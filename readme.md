@@ -7,7 +7,7 @@ A simple GDExtension library for encoding and decoding Opus audio in Godot 4.
 1. Clone the repository with recursive submodules:
 
 ```bash
-	git clone --recursive https://github.com/your-username/godot-opus
+	git clone --recursive https://github.com/your-username/godot_opus
 ```
 
 2. Build using SCons (run in the root of the repository):
@@ -16,7 +16,7 @@ A simple GDExtension library for encoding and decoding Opus audio in Godot 4.
 	scons
 ```
 
-3. Copy the generated `addons/voicechat/` folder into your Godot project's `addons/` folder.
+3. Copy the generated `addons/godot_opus/` folder into your Godot project's `addons/` folder.
 4. ???
 5. Use the codec!
 

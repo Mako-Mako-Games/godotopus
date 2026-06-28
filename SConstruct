@@ -46,17 +46,17 @@ sources = glob.glob("src/*.cpp") + opus_src
 lib_name = "libgodotopus"
 env.Append(CPPPATH=["src/"])
 
-# Output DLLs/SOs into addons/godot-opus/bin/
-bin_dir = "addons/godot-opus/bin"
+# Output DLLs/SOs into addons/godot_opus/bin/
+bin_dir = "addons/godot_opus/bin"
 
 library = env.SharedLibrary(
     f"{bin_dir}/{lib_name}{env['suffix']}{env['SHLIBSUFFIX']}",
     source=sources,
 )
 
-# Copy the .gdextension file into addons/godot-opus/ after build
-addon_dir = "addons/godot-opus"
-gdextension_src = "godot-opus.gdextension"
+# Copy the .gdextension file into addons/godot_opus/ after build
+addon_dir = "addons/godot_opus"
+gdextension_src = "godot_opus.gdextension"
 
 def copy_gdextension(target, source, env):
     os.makedirs(addon_dir, exist_ok=True)
