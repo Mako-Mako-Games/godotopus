@@ -13,7 +13,6 @@ opus_src = (
     glob.glob("third-party/opus/silk/float/*.c")
 )
 
-# Exclude demo/test files that define their own main()
 exclude = [
     "opus_demo.c",
     "opus_compare.c",
@@ -40,21 +39,39 @@ env.Append(CPPPATH=[
     "third-party/opus/silk/float",
 ])
 
-# Your sources
-sources = glob.glob("src/*.cpp") + opus_src
+# Speex defines on the global env so src/*.cpp see RANDOM_PREFIX
+env.Append(CPPDEFINES=[
+    "OUTSIDE_SPEEX",
+    "RANDOM_PREFIX=godotopus",
+    "FLOATING_POINT",
+    "EXPORT=",
+])
+env.Append(CPPPATH=[
+    "third-party/speexdsp/include",
+])
 
-lib_name = "libgodotopus"
+# Clone AFTER all defines are appended, then add the internal path only for resample.c
+speex_env = env.Clone()
+speex_env.Append(CPPPATH=[
+    "third-party/speexdsp/libspeexdsp",
+    "third-party/speexdsp/include/speex",
+])
+
+speex_obj = speex_env.Object(
+    "third-party/speexdsp/libspeexdsp/resample.c"
+)
+
 env.Append(CPPPATH=["src/"])
 
-# Output DLLs/SOs into addons/godot_opus/bin/
-bin_dir = "addons/godot_opus/bin"
+sources = glob.glob("src/*.cpp") + opus_src + [speex_obj]
 
+lib_name = "libgodotopus"
+bin_dir = "addons/godot_opus/bin"
 library = env.SharedLibrary(
     f"{bin_dir}/{lib_name}{env['suffix']}{env['SHLIBSUFFIX']}",
     source=sources,
 )
 
-# Copy the .gdextension file into addons/godot_opus/ after build
 addon_dir = "addons/godot_opus"
 gdextension_src = "godot_opus.gdextension"
 
@@ -72,6 +89,5 @@ copy_action = env.Command(
     source=gdextension_src,
     action=copy_gdextension,
 )
-
 env.Depends(copy_action, library)
 Default(library, copy_action)

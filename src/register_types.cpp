@@ -1,5 +1,6 @@
 ﻿#include "register_types.hpp"
 #include "godot_opus_codec.hpp"
+#include "godot_opus_resampler.hpp"
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
@@ -7,8 +8,10 @@ using namespace godot;
 
 void initialize_godot_opus(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
+    // Register classes here
     ClassDB::register_class<GodotOpusEncoder>();
     ClassDB::register_class<GodotOpusDecoder>();
+    ClassDB::register_class<GodotOpusResampler>();
 }
 
 void uninitialize_godot_opus(ModuleInitializationLevel p_level) {
