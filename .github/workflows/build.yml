@@ -1,13 +1,11 @@
 name: Build
-
 on:
   push:
     branches: [master]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,15 +16,13 @@ jobs:
         include:
           - os: windows-latest
             platform: windows
-
           - os: ubuntu-latest
             platform: linux
-
           - os: macos-latest
             platform: macos
-
     runs-on: ${{ matrix.os }}
-
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons_cache
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,14 +34,20 @@ jobs:
 
       - run: pip install scons
 
+      - name: Cache SCons build
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCONS_CACHE }}
+          key: scons-${{ matrix.platform }}-${{ hashFiles('src/**', 'third-party/opus/**', 'third-party/speexdsp/**', 'SConstruct') }}
+          restore-keys: |
+            scons-${{ matrix.platform }}-
+
       - name: Build Debug
         run: scons platform=${{ matrix.platform }} target=template_debug
-
-      - name: Build Release
-        run: scons platform=${{ matrix.platform }} target=template_release
 
       - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
           name: godotopus-${{ matrix.platform }}
           path: build/addons/godotopus/bin
+          if-no-files-found: error

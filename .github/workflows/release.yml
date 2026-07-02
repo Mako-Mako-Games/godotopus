@@ -1,5 +1,4 @@
 name: Draft Release
-
 on:
   workflow_dispatch:
     inputs:
@@ -22,15 +21,13 @@ jobs:
         include:
           - os: windows-latest
             platform: windows
-
           - os: ubuntu-latest
             platform: linux
-
           - os: macos-latest
             platform: macos
-
     runs-on: ${{ matrix.os }}
-
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons_cache
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,19 +40,26 @@ jobs:
 
       - run: pip install scons
 
-      - run: scons platform=${{ matrix.platform }} target=template_debug
+      - name: Cache SCons build
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCONS_CACHE }}
+          key: scons-release-${{ matrix.platform }}-${{ inputs.tag }}
+          restore-keys: |
+            scons-release-${{ matrix.platform }}-
 
-      - run: scons platform=${{ matrix.platform }} target=template_release
+      - name: Build Release
+        run: scons platform=${{ matrix.platform }} target=template_release
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}-bin
           path: build/addons/godotopus/bin
+          if-no-files-found: error
 
   package:
     needs: build
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,14 +72,22 @@ jobs:
       - name: Assemble addon
         shell: bash
         run: |
-          mkdir -p package/addons/godotopus
-
+          set -euo pipefail
+          mkdir -p package/addons/godotopus/bin
           cp addon/godotopus.gdextension package/addons/godotopus/
           cp -r addon/scripts package/addons/godotopus/
 
-          mkdir package/addons/godotopus/bin
+          # Copy per-platform artifact folders, preserving platform prefix
+          # so files from different platforms never collide even if they
+          # happen to share a basename.
+          for dir in artifacts/*/; do
+            platform_name=$(basename "$dir")
+            cp -r "$dir"/* package/addons/godotopus/bin/
+            echo "Copied $platform_name binaries"
+          done
 
-          find artifacts -type f -exec cp {} package/addons/godotopus/bin/ \;
+          echo "Final bin contents:"
+          ls -la package/addons/godotopus/bin
 
       - name: Create ZIP
         run: |

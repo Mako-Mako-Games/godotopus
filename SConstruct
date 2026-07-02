@@ -41,10 +41,12 @@ opus_src = [
 ]
 
 # -----------------------------------------------------------------------------
-# Opus configuration
+# Opus configuration (isolated env — do not let these defines leak into
+# Speex or plugin sources)
 # -----------------------------------------------------------------------------
 
-env.Append(
+opus_env = env.Clone()
+opus_env.Append(
     CPPDEFINES=[
         "OPUS_BUILD",
         "USE_ALLOCA",
@@ -54,8 +56,7 @@ env.Append(
         "OPUS_HAVE_RTCD",
     ]
 )
-
-env.Append(
+opus_env.Append(
     CPPPATH=[
         "third-party/opus/include",
         "third-party/opus/celt",
@@ -64,11 +65,15 @@ env.Append(
     ]
 )
 
+opus_objs = [opus_env.Object(f) for f in opus_src]
+
 # -----------------------------------------------------------------------------
-# SpeexDSP configuration
+# SpeexDSP configuration (isolated env — do not let these defines leak into
+# Opus or plugin sources)
 # -----------------------------------------------------------------------------
 
-env.Append(
+speex_env = env.Clone()
+speex_env.Append(
     CPPDEFINES=[
         "OUTSIDE_SPEEX",
         "RANDOM_PREFIX=godotopus",
@@ -76,17 +81,9 @@ env.Append(
         "EXPORT=",
     ]
 )
-
-env.Append(
-    CPPPATH=[
-        "third-party/speexdsp/include",
-    ]
-)
-
-speex_env = env.Clone()
-
 speex_env.Append(
     CPPPATH=[
+        "third-party/speexdsp/include",
         "third-party/speexdsp/libspeexdsp",
         "third-party/speexdsp/include/speex",
     ]
@@ -95,12 +92,18 @@ speex_env.Append(
 speex_obj = speex_env.Object("third-party/speexdsp/libspeexdsp/resample.c")
 
 # -----------------------------------------------------------------------------
-# Plugin sources
+# Plugin sources — only needs include paths, none of the Opus/Speex macros
 # -----------------------------------------------------------------------------
 
-env.Append(CPPPATH=["src"])
+env.Append(
+    CPPPATH=[
+        "src",
+        "third-party/opus/include",
+        "third-party/speexdsp/include",
+    ]
+)
 
-sources = glob.glob("src/*.cpp") + opus_src + [speex_obj]
+sources = glob.glob("src/*.cpp") + opus_objs + [speex_obj]
 
 lib_name = "libgodotopus"
 
