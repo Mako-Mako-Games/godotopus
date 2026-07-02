@@ -1,34 +1,51 @@
-name: Build Godot Addon
+name: Build
 
 on:
   push:
-    branches: [ master ]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+
+          - os: ubuntu-latest
+            platform: linux
+
+          - os: macos-latest
+            platform: macos
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: Install SCons
-        run: pip install scons
+      - run: pip install scons
 
-      - name: Build
-        run: scons platform=windows target=template_release
+      - name: Build Debug
+        run: scons platform=${{ matrix.platform }} target=template_debug
 
-      - name: Upload Addon
+      - name: Build Release
+        run: scons platform=${{ matrix.platform }} target=template_release
+
+      - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
-          name: godotopus-windows
-          path: build/addons/godotopus
+          name: godotopus-${{ matrix.platform }}
+          path: build/addons/godotopus/bin
