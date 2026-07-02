@@ -44,9 +44,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.SCONS_CACHE }}
-          key: scons-release-${{ matrix.platform }}-${{ inputs.tag }}
+          key: scons-${{ matrix.platform }}-${{ hashFiles('src/**', 'third-party/opus/**', 'third-party/speexdsp/**', 'SConstruct') }}-v2
           restore-keys: |
-            scons-release-${{ matrix.platform }}-
+            scons-${{ matrix.platform }}-
+
+      - name: Build Debug
+        run: scons platform=${{ matrix.platform }} target=template_debug
 
       - name: Build Release
         run: scons platform=${{ matrix.platform }} target=template_release
