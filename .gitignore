@@ -1,4 +1,4 @@
-﻿/addons
+﻿/build
 .sconsign.dblite
 # No idea what these are
 src/*.obj
