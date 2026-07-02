@@ -130,6 +130,14 @@ env.Depends(speex_obj, speex_config_types)
 # -----------------------------------------------------------------------------
 
 env.Append(
+    CPPDEFINES=[
+        "OUTSIDE_SPEEX",
+        "RANDOM_PREFIX=godotopus",
+        "FLOATING_POINT",
+        "EXPORT=",
+    ]
+)
+env.Append(
     CPPPATH=[
         "src",
         "third-party/opus/include",
