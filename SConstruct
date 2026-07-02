@@ -17,6 +17,35 @@ gdextension_src = "addon/godotopus.gdextension"
 scripts_src = "addon/scripts"
 
 # -----------------------------------------------------------------------------
+# Generate speexdsp_config_types.h (normally produced by autoconf)
+# -----------------------------------------------------------------------------
+
+speex_config_types_path = "third-party/speexdsp/include/speex/speexdsp_config_types.h"
+
+
+def generate_speex_config_types(target, source, env):
+    content = (
+        "#ifndef SPEEXDSP_CONFIG_TYPES_H\n"
+        "#define SPEEXDSP_CONFIG_TYPES_H\n\n"
+        "#include <stdint.h>\n\n"
+        "typedef int16_t spx_int16_t;\n"
+        "typedef uint16_t spx_uint16_t;\n"
+        "typedef int32_t spx_int32_t;\n"
+        "typedef uint32_t spx_uint32_t;\n\n"
+        "#endif /* SPEEXDSP_CONFIG_TYPES_H */\n"
+    )
+    with open(target[0].abspath, "w") as f:
+        f.write(content)
+    print(f"Generated {speex_config_types_path}")
+
+
+speex_config_types = env.Command(
+    speex_config_types_path,
+    "third-party/speexdsp/include/speex/speexdsp_config_types.h.in",
+    generate_speex_config_types,
+)
+
+# -----------------------------------------------------------------------------
 # Opus sources
 # -----------------------------------------------------------------------------
 
@@ -56,6 +85,8 @@ opus_env.Append(
         "OPUS_HAVE_RTCD",
     ]
 )
+if opus_env["platform"] in ("macos", "linux"):
+    opus_env.Append(CCFLAGS=["-fPIC"])
 opus_env.Append(
     CPPPATH=[
         "third-party/opus/include",
@@ -88,8 +119,11 @@ speex_env.Append(
         "third-party/speexdsp/include/speex",
     ]
 )
+if speex_env["platform"] in ("macos", "linux"):
+    speex_env.Append(CCFLAGS=["-fPIC"])
 
 speex_obj = speex_env.Object("third-party/speexdsp/libspeexdsp/resample.c")
+env.Depends(speex_obj, speex_config_types)
 
 # -----------------------------------------------------------------------------
 # Plugin sources — only needs include paths, none of the Opus/Speex macros
@@ -111,6 +145,7 @@ library = env.SharedLibrary(
     os.path.join(bin_dir, f"{lib_name}{env['suffix']}{env['SHLIBSUFFIX']}"),
     source=sources,
 )
+env.Depends(library, speex_config_types)
 
 # -----------------------------------------------------------------------------
 # Copy addon files
