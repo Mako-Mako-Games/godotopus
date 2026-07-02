@@ -28,8 +28,8 @@ GDExtensionBool GDE_EXPORT godotopus_init(
     GDExtensionInitialization *r_initialization)
 {
     GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
-    init_obj.register_initializer(initialize_godot_opus);
-    init_obj.register_terminator(uninitialize_godot_opus);
+    init_obj.register_initializer(initialize_godotopus);
+    init_obj.register_terminator(uninitialize_godotopus);
     init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
     return init_obj.init();
 }
