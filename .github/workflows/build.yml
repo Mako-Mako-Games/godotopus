@@ -2,7 +2,7 @@ name: Build Godot Addon
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   pull_request:
   workflow_dispatch:
 
