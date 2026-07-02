@@ -1,70 +1,62 @@
 # Godotopus
 
 ![Godotopus](godotopus.png)
-A simple but powerful GDExtension addon enabling VOIP using Opus encoding and decoding for Godot 4.
+
+A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus encoding and decoding.
 
 ## Features
 
-- Voice activity detection
-- Lightweight Opus encoding
-- Packet loss compensation
-- Easy configuration
-- Config synchronization between peers
-- Network jitter compensation
-- Output to multiple AudioPlayer nodes
-- Support for all AudioPlayer nodes
+* Voice activity detection
+* Lightweight Opus encoding
+* Packet loss compensation
+* Network jitter compensation
+* Config synchronization between peers
+* Easy configuration
+* Output to multiple audio players
+* Supports all `AudioStreamPlayer` node types
 
-## How to install
+---
 
-1. Go to the releases page and download the built addon for your platform.
-2. Extract the contents to the `addons/` folder of your project
+## Installation
 
-## How to Use
+1. Download the latest release for your platform.
+2. Extract it into your project's `addons/` folder.
+3. Enable the plugin in **Project Settings → Plugins**.
 
-There are two ways to capture input audio using Godotopus.
+---
 
-- Capture Bus - Allows using effects directly on the voice signal
-- AudioServer - Lower latency, more reliable
+## Usage
 
-### Using Capture Bus
+Godotopus supports two methods of capturing microphone input:
 
-In order to record using Godot's `AudioEffectCapture`:
+* **Capture Bus** - Allows you to process the microphone with Godot audio effects.
+* **Direct AudioServer Input** - Lower latency and generally more reliable.
 
-First, create an audio bus. Name it whatever you wish, "VoiceCapture" for example.
+### Capture Bus
 
-Add an AudioEffectCapture effect to the audio bus.
+1. Create a new audio bus (for example, `VoiceCapture`).
+2. Add an `AudioEffectCapture` effect to that bus.
+3. Add an `AudioStreamPlayer` somewhere in your main scene and assign it an `AudioStreamMicrophone`.
+4. Add a `VoiceTransmitter`.
+5. Set **Capture Bus Name** to the name of the bus you created.
+6. Assign a `VoiceConfig` resource (the defaults are fine).
+7. Add one or more audio players to the `Players` array.
 
-Next, add an AudioStreamPlayer to your main game scene, and place an `AudioStreamMicrophone` as the stream.
+> **Note**
+>
+> Make _SURE_ you don't end up creating multiple microphone recording AudioStreamPlayer nodes. I spent 5 hours straight trying to figure out why people's voices were playing back twice just because I added it under a scene that gets instantiated multiple times!
+### Direct AudioServer Input
 
-> NOTE: Make _SURE_ you don't end up creating multiple microphone recording AudioStreamPlayer nodes. I spent 5 hours straight trying to figure out why people's voices were playing back twice just because I added it under the player scene!
+1. Add a `VoiceTransmitter`.
+2. Leave **Capture Bus Name** empty.
+3. Assign a `VoiceConfig` resource.
+4. Add one or more audio players to the `Players` array.
 
-Now, add a VoiceTransmitter under your player (or where ever is most convenient to you).
+---
 
-Set the Capture Bus Name field on the `VoiceTransmitter` to the name of the bus you set up.
+## Building
 
-Add a `VoiceConfig` to the `VoiceTransmitter` (default settings are fine)
-
-Finally, add an Audio Stream player, and register it to the `VoiceTransmitter`'s Players array.
-
-Done!
-
-### Using Direct Input
-
-In order to record using Godot's `AudioServer`:
-
-First, add a VoiceTransmitter under your player (or where ever is most convenient to you).
-
-Next, set the Capture Bus Name field to empty to trigger usage of the AudioServer
-
-Add a `VoiceConfig` to the `VoiceTransmitter` (default settings are fine)
-
-Finally, add an Audio Stream player, and register it to the `VoiceTransmitter`'s Players array.
-
-Done!
-
-## How to Build
-
-1. Clone the repository with recursive submodules:
+Clone the repository with submodules:
 
 ```bash
 git clone --recursive https://github.com/Mako-Mako-Games/godotopus.git
@@ -76,21 +68,29 @@ or
 git clone --recursive git@github.com:Mako-Mako-Games/godotopus.git
 ```
 
-2. Build using SCons (run in the root of the repository):
+Build from the repository root:
 
 ```bash
 scons
 ```
 
-3. Copy the generated `build/addons/godotopus/` folder into your Godot project's `addons/` folder.
-4. ???
+Copy `build/addons/godotopus/` into your project's `addons/` folder.
 
-> Note: You might have to cd to the `third-party/godot-cpp/` folder and run scons first to build godot-cpp. I haven't checked yet!
+> You may need to build `third-party/godot-cpp` first:
+>
+> ```bash
+> cd third-party/godot-cpp
+> scons
+> ```
 
-## Godotopus was made by Mako Mako Games!
+---
 
-We're a group of recent college graduates working on our first longterm Godot Game project! Consider checking on us from time to time!
-<br>
+## About
+
+Godotopus is made by Mako Mako Games.
+
+We're a group of recent college graduates working on our first long-term Godot game. If you'd like to follow development, check out our YouTube channel.
 
 [![YouTube Logo](youtube-logo.png)](https://www.youtube.com/@MakoMakoDev)
-[Our YouTube Channel](https://www.youtube.com/@MakoMakoDev)
+
+https://www.youtube.com/@MakoMakoDev
