@@ -85,8 +85,6 @@ opus_env.Append(
         "OPUS_HAVE_RTCD",
     ]
 )
-if opus_env["platform"] in ("macos", "linux"):
-    opus_env.Append(CCFLAGS=["-fPIC"])
 opus_env.Append(
     CPPPATH=[
         "third-party/opus/include",
@@ -96,7 +94,7 @@ opus_env.Append(
     ]
 )
 
-opus_objs = [opus_env.Object(f) for f in opus_src]
+opus_objs = [opus_env.SharedObject(f) for f in opus_src]
 
 # -----------------------------------------------------------------------------
 # SpeexDSP configuration (isolated env — do not let these defines leak into
@@ -119,10 +117,8 @@ speex_env.Append(
         "third-party/speexdsp/include/speex",
     ]
 )
-if speex_env["platform"] in ("macos", "linux"):
-    speex_env.Append(CCFLAGS=["-fPIC"])
 
-speex_obj = speex_env.Object("third-party/speexdsp/libspeexdsp/resample.c")
+speex_obj = speex_env.SharedObject("third-party/speexdsp/libspeexdsp/resample.c")
 env.Depends(speex_obj, speex_config_types)
 
 # -----------------------------------------------------------------------------
