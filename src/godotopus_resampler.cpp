@@ -1,4 +1,4 @@
-#include "godot_opus_resampler.hpp"
+#include "godotopus_resampler.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 

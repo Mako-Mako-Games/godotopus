@@ -1,28 +1,6 @@
 extends RefCounted
 class_name JitterBuffer
 
-## Receive-side playout buffer for ONE remote peer's voice stream.
-##
-## Deviations from a generic "reorder + clock-drift" jitter buffer, and why:
-##
-## 1. No reorder map. The packets are sent over an "unreliable_ordered" RPC
-##    channel, which means Godot's MultiplayerAPI already discards anything
-##    that arrives late or out of order at the transport layer — we will only
-##    ever see sequence numbers increase, with gaps (drops), never reordering.
-##    A SortedMap-based reorder buffer would be solving a problem that can't
-##    actually occur here, so this just tracks one expected sequence number.
-##
-## 2. No wall-clock latency math. Peers are not clock-synchronized, so
-##    "latency = my_clock - their_timestamp" is comparing two unrelated
-##    clocks and will silently drift or jump on any clock-skew. Instead this
-##    buffer treats backlog depth (how many undecoded packets are queued) as
-##    the only signal — that's a purely local, self-consistent measurement.
-##
-## 3. Real FEC integration. On a detected gap, the frame immediately
-##    preceding the next available packet gets a real attempt at recovery via
-##    that packet's in-band FEC data before falling back to plain
-##    concealment; earlier frames in a longer gap go straight to concealment
-##    since FEC can only ever recover the immediately-preceding frame.
 
 var decoder: GodotOpusDecoder
 var target_depth_frames: int = 3
@@ -97,17 +75,6 @@ func _decode_one_step() -> void:
 	if diff < 0:
 		# Stale/duplicate (shouldn't happen over unreliable_ordered, but don't
 		# let it wedge the expected-sequence tracking if it somehow does).
-		#
-		# NOTE: this branch used to be checked with the unsigned
-		# _seq_distance() helper, which can never return a negative number by
-		# construction — so this case was silently unreachable. A stale/late
-		# packet fell through into the gap-handling branch below instead,
-		# where the wraparound distance from _expected_seq back to a seq
-		# that's actually BEHIND it comes out as a huge number (up to ~65535),
-		# which would have tried to synthesize tens of thousands of PLC
-		# concealment frames in a single tick. _signed_seq_diff() below
-		# distinguishes "behind" (negative) from "ahead" (positive) instead
-		# of always measuring forward distance.
 		_raw_queue.pop_front()
 		return
 
@@ -139,10 +106,7 @@ func _wrap(v: int) -> int:
 
 ## Signed circular distance from `from_seq` to `to_seq`, in (-MODULO/2, MODULO/2].
 ## Positive means `to_seq` is ahead of `from_seq` (a gap of that many frames);
-## negative means it's behind (stale/duplicate). Using a half-range signed
-## result instead of always measuring the forward distance is what lets a
-## packet that's actually behind be told apart from one that's merely due to
-## a legitimate gap — the two look identical to a plain unsigned distance.
+## negative means it's behind (stale/duplicate).
 func _signed_seq_diff(to_seq: int, from_seq: int) -> int:
 	var d := (to_seq - from_seq) % SEQ_MODULO
 	if d > SEQ_MODULO / 2:

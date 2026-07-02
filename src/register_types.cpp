@@ -1,6 +1,6 @@
 ﻿#include "register_types.hpp"
-#include "godot_opus_codec.hpp"
-#include "godot_opus_resampler.hpp"
+#include "godotopus_codec.hpp"
+#include "godotopus_resampler.hpp"
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -9,7 +9,7 @@
 
 using namespace godot;
 
-void initialize_godot_opus(ModuleInitializationLevel p_level) {
+void initialize_godotopus(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 
     ClassDB::register_class<GodotOpusEncoder>();
@@ -17,12 +17,12 @@ void initialize_godot_opus(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GodotOpusResampler>();
 }
 
-void uninitialize_godot_opus(ModuleInitializationLevel p_level) {
+void uninitialize_godotopus(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 }
 
 extern "C" {
-GDExtensionBool GDE_EXPORT godot_opus_init(
+GDExtensionBool GDE_EXPORT godotopus_init(
     GDExtensionInterfaceGetProcAddress p_get_proc_address,
     GDExtensionClassLibraryPtr p_library,
     GDExtensionInitialization *r_initialization)

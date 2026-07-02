@@ -1,6 +1,6 @@
 #pragma once
 
-// Reconstructed from godot_opus_resampler.cpp (no .hpp was provided). Public
+// Reconstructed from godotopus_resampler.cpp (no .hpp was provided). Public
 // API (initialize, resample, destroy, get_from_rate, get_to_rate) is
 // unchanged from your original — get_channels() is the only addition.
 

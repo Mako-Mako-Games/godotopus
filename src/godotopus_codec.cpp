@@ -1,11 +1,10 @@
-﻿#include "godot_opus_codec.hpp"
+﻿#include "godotopus_codec.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
 namespace {
-
 // Opus only supports a fixed set of frame durations per sample rate. Anything
 // else gets rejected by opus_encode_float/opus_decode_float at runtime with a
 // much less helpful error, so we validate up front and fall back to 20ms.

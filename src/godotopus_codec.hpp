@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-// NOTE: only godot_opus_codec.cpp was provided to me, not the matching .hpp,
+// NOTE: only godotopus_codec.cpp was provided to me, not the matching .hpp,
 // so this header is reconstructed from how the .cpp used it. The public API
 // surface from your original file (initialize, encode, decode, set_bitrate,
 // set_frame_size, get_frame_size) is kept intact and backward compatible —

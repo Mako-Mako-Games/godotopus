@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python
 
-import os
 import glob
+import os
 import shutil
 
 env = SConscript("third-party/godot-cpp/SConstruct")
@@ -37,56 +37,62 @@ exclude = [
 ]
 
 opus_src = [
-    f
-    for f in opus_src
-    if not any(f.replace("\\", "/").endswith(x) for x in exclude)
+    f for f in opus_src if not any(f.replace("\\", "/").endswith(x) for x in exclude)
 ]
 
 # -----------------------------------------------------------------------------
 # Opus configuration
 # -----------------------------------------------------------------------------
 
-env.Append(CPPDEFINES=[
-    "OPUS_BUILD",
-    "USE_ALLOCA",
-    "HAVE_LRINT",
-    "HAVE_LRINTF",
-    "FLOAT_APPROX",
-    "OPUS_HAVE_RTCD",
-])
+env.Append(
+    CPPDEFINES=[
+        "OPUS_BUILD",
+        "USE_ALLOCA",
+        "HAVE_LRINT",
+        "HAVE_LRINTF",
+        "FLOAT_APPROX",
+        "OPUS_HAVE_RTCD",
+    ]
+)
 
-env.Append(CPPPATH=[
-    "third-party/opus/include",
-    "third-party/opus/celt",
-    "third-party/opus/silk",
-    "third-party/opus/silk/float",
-])
+env.Append(
+    CPPPATH=[
+        "third-party/opus/include",
+        "third-party/opus/celt",
+        "third-party/opus/silk",
+        "third-party/opus/silk/float",
+    ]
+)
 
 # -----------------------------------------------------------------------------
 # SpeexDSP configuration
 # -----------------------------------------------------------------------------
 
-env.Append(CPPDEFINES=[
-    "OUTSIDE_SPEEX",
-    "RANDOM_PREFIX=godotopus",
-    "FLOATING_POINT",
-    "EXPORT=",
-])
+env.Append(
+    CPPDEFINES=[
+        "OUTSIDE_SPEEX",
+        "RANDOM_PREFIX=godotopus",
+        "FLOATING_POINT",
+        "EXPORT=",
+    ]
+)
 
-env.Append(CPPPATH=[
-    "third-party/speexdsp/include",
-])
+env.Append(
+    CPPPATH=[
+        "third-party/speexdsp/include",
+    ]
+)
 
 speex_env = env.Clone()
 
-speex_env.Append(CPPPATH=[
-    "third-party/speexdsp/libspeexdsp",
-    "third-party/speexdsp/include/speex",
-])
-
-speex_obj = speex_env.Object(
-    "third-party/speexdsp/libspeexdsp/resample.c"
+speex_env.Append(
+    CPPPATH=[
+        "third-party/speexdsp/libspeexdsp",
+        "third-party/speexdsp/include/speex",
+    ]
 )
+
+speex_obj = speex_env.Object("third-party/speexdsp/libspeexdsp/resample.c")
 
 # -----------------------------------------------------------------------------
 # Plugin sources
@@ -94,11 +100,7 @@ speex_obj = speex_env.Object(
 
 env.Append(CPPPATH=["src"])
 
-sources = (
-    glob.glob("src/*.cpp")
-    + opus_src
-    + [speex_obj]
-)
+sources = glob.glob("src/*.cpp") + opus_src + [speex_obj]
 
 lib_name = "libgodotopus"
 
@@ -111,10 +113,12 @@ library = env.SharedLibrary(
 # Copy addon files
 # -----------------------------------------------------------------------------
 
+
 def copy_gdextension(target, source, env):
     os.makedirs(build_dir, exist_ok=True)
     shutil.copy2(gdextension_src, target[0].abspath)
     print(f"Copied {gdextension_src}")
+
 
 gdextension = env.Command(
     os.path.join(build_dir, "godotopus.gdextension"),
@@ -127,6 +131,7 @@ def copy_scripts(target, source, env):
     dst = os.path.join(build_dir, "scripts")
     shutil.copytree(scripts_src, dst, dirs_exist_ok=True)
     print(f"Copied {scripts_src} -> {dst}")
+
 
 scripts = env.Command(
     os.path.join(build_dir, "scripts"),
