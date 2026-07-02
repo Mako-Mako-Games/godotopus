@@ -1,0 +1,34 @@
+name: Build Godot Addon
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install SCons
+        run: pip install scons
+
+      - name: Build
+        run: scons platform=windows target=template_release
+
+      - name: Upload Addon
+        uses: actions/upload-artifact@v4
+        with:
+          name: godotopus-windows
+          path: build/addons/godotopus
