@@ -80,13 +80,6 @@ scons
 
 Copy `build/addons/godotopus/` into your project's `addons/` folder.
 
-> You may need to build `third-party/godot-cpp` first:
->
-> ```bash
-> cd third-party/godot-cpp
-> scons
-> ```
-
 ---
 
 ## About
