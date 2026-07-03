@@ -91,48 +91,58 @@ opus_src = [
 
 dred_enabled = ARGUMENTS.get("dred", "no").lower() in ("yes", "true", "1")
 
-opus_dnn_dir = "third-party/opus/dnn"
+opus_root = "third-party/opus"
+opus_dnn_dir = os.path.join(opus_root, "dnn")
 opus_dnn_stamp = os.path.join(opus_dnn_dir, ".opus_dnn_weights.stamp")
 
-# Mirrors third-party/opus/lpcnet_sources.mk. The SIMD-dispatch variants
-# (dnn/x86, dnn/arm) are intentionally left out, same as the celt/x86 and
-# celt/arm equivalents already excluded from opus_src above.
-opus_dnn_deep_plc_src = [
-    "burg.c",
-    "freq.c",
-    "fargan.c",
-    "fargan_data.c",
-    "lpcnet_enc.c",
-    "lpcnet_plc.c",
-    "lpcnet_tables.c",
-    "nnet.c",
-    "nnet_default.c",
-    "plc_data.c",
-    "parse_lpcnet_weights.c",
-    "pitchdnn.c",
-    "pitchdnn_data.c",
-]
-opus_dnn_dred_src = [
-    "dred_rdovae_enc.c",
-    "dred_rdovae_enc_data.c",
-    "dred_rdovae_dec.c",
-    "dred_rdovae_dec_data.c",
-    "dred_rdovae_stats_data.c",
-    "dred_encoder.c",
-    "dred_coding.c",
-    "dred_decoder.c",
-]
-opus_dnn_osce_src = [
-    "osce.c",
-    "osce_features.c",
-    "nndsp.c",
-    "lace_data.c",
-    "nolace_data.c",
-    "bbwenet_data.c",
+
+def _parse_make_var_lists(mk_path):
+    # Tiny parser for the `VAR = a \\\n    b \\\n    c` style variable blocks
+    # used by Automake .mk fragments (opus's own cmake/OpusSources.cmake does
+    # the equivalent thing via its get_opus_sources() macro). Reading the
+    # real lpcnet_sources.mk here -- instead of hand-copying its contents --
+    # means a future opus submodule bump can never silently desync our file
+    # lists from upstream's.
+    with open(mk_path, "r") as f:
+        content = f.read().replace("\\\n", " ")
+    variables = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        variables[name.strip()] = value.split()
+    return variables
+
+
+_lpcnet_vars = _parse_make_var_lists(os.path.join(opus_root, "lpcnet_sources.mk"))
+
+# The SIMD-dispatch variants (dnn/x86, dnn/arm) are intentionally left out,
+# same as the celt/x86 and celt/arm equivalents already excluded from
+# opus_src above.
+opus_dnn_src = [
+    os.path.join(opus_root, f)
+    for f in _lpcnet_vars["DEEP_PLC_SOURCES"] + _lpcnet_vars["DRED_SOURCES"] + _lpcnet_vars["OSCE_SOURCES"]
 ]
 
-opus_dnn_filenames = opus_dnn_deep_plc_src + opus_dnn_dred_src + opus_dnn_osce_src
-opus_dnn_src = [os.path.join(opus_dnn_dir, f) for f in opus_dnn_filenames]
+# Of the files above, only the "*_data.c" ones are actually absent from the
+# opus submodule and produced by extracting the weights archive (verified
+# empirically against what media.xiph.org's opus_data-<hash>.tar.gz actually
+# contains, matching upstream's own dnn/download_model.sh, which just
+# `tar xvzomf`s the archive over the tree with no separate target list at
+# all). Everything else in opus_dnn_src (freq.c, nnet.c, burg.c, etc.) is
+# regular, already-checked-in submodule source -- it must NOT be declared as
+# a target of the download Command below, because SCons deletes every
+# declared target before running a Builder's action. Since the archive does
+# not actually contain those files, that deletion would be permanent (this
+# happened once already -- see git history/handoff notes -- and was fixed by
+# `git checkout` inside the opus submodule). Only genuinely-downloaded files
+# may appear in dnn_weights' target list; everything else is compiled from
+# opus_dnn_src as normal, merely *ordered after* the download via Depends so
+# their #includes of the downloaded headers resolve.
+opus_dnn_downloaded_src = [f for f in opus_dnn_src if os.path.basename(f).endswith("_data.c")]
+
+
 
 
 def _pinned_opus_model_hash():
@@ -178,11 +188,12 @@ def _download_opus_dnn_weights(target, source, env):
 
 
 if dred_enabled:
-    # Declaring every extracted .c we compile (not just the stamp) as a
-    # target lets SCons treat them as derived nodes it knows how to produce,
-    # instead of erroring out because they don't exist on disk yet.
+    # Only declare the files actually produced by extracting the weights
+    # archive as targets here (see opus_dnn_downloaded_src comment above) --
+    # NOT the full opus_dnn_src list, most of which is regular submodule
+    # source SCons must not delete-then-fail-to-recreate.
     dnn_weights = env.Command(
-        [opus_dnn_stamp] + opus_dnn_src,
+        [opus_dnn_stamp] + opus_dnn_downloaded_src,
         "third-party/opus/autogen.sh",  # pins the model hash; re-fetches if it changes
         _download_opus_dnn_weights,
     )
@@ -221,11 +232,26 @@ if dred_enabled:
             "ENABLE_OSCE_BWE",
         ]
     )
-    opus_env.Append(CPPPATH=[opus_dnn_dir])
+    # dnn/*.c sources use bare-prefixed includes like "celt/entenc.h" (see
+    # third-party/opus's own CMakeLists.txt, which adds
+    # ${CMAKE_CURRENT_SOURCE_DIR} -- i.e. the opus root -- to its include
+    # path for exactly this reason), so the opus root itself needs to be on
+    # the include path here too, not just its celt/silk/dnn subdirectories.
+    opus_env.Append(CPPPATH=[opus_root, opus_dnn_dir])
 
 opus_objs = [opus_env.SharedObject(f) for f in opus_src]
 
 if dred_enabled:
+    # The base opus_objs above are compiled with ENABLE_DEEP_PLC/ENABLE_DRED/
+    # ENABLE_OSCE(_BWE) too (see opus_env.Append CPPDEFINES above), so files
+    # like opus_decoder.c/opus_encoder.c/celt_decoder.c transitively need
+    # dnn/plc_data.h and friends -- which only exist after the weights
+    # archive has been downloaded and extracted. Without this dependency,
+    # SCons has no reason to run that download/extract step before compiling
+    # them, and will happily (and non-deterministically, depending on job
+    # scheduling) try to compile them first and fail with a missing-include
+    # error. Both the base objects and the new DNN-only objects must wait on it.
+    env.Depends(opus_objs, dnn_weights)
     opus_dnn_objs = [opus_env.SharedObject(f) for f in opus_dnn_src]
     env.Depends(opus_dnn_objs, dnn_weights)
     opus_objs += opus_dnn_objs
