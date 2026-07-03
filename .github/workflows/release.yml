@@ -76,10 +76,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p package/addons
+          cp -r addon package/addons/godotopus
           mkdir -p package/addons/godotopus/bin
-          cp addon/godotopus.gdextension package/addons/godotopus/
-          cp -r addon/scripts package/addons/godotopus/
-
           # Copy per-platform artifact folders, preserving platform prefix
           # so files from different platforms never collide even if they
           # happen to share a basename.
@@ -88,7 +87,6 @@ jobs:
             cp -r "$dir"/* package/addons/godotopus/bin/
             echo "Copied $platform_name binaries"
           done
-
           echo "Final bin contents:"
           ls -la package/addons/godotopus/bin
 
