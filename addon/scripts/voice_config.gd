@@ -149,13 +149,11 @@ var _dirty: bool = false
 
 func _mark_dirty() -> void:
 	_dirty = true
-	config_changed.emit()
+	call_deferred("_emit_config_changed")
 
-func is_dirty() -> bool:
-	return _dirty
-
-func mark_clean() -> void:
+func _emit_config_changed() -> void:
 	_dirty = false
+	config_changed.emit()
 
 ## Samples-per-channel for one opus frame at the current settings.
 func get_frame_size() -> int:

@@ -11,7 +11,15 @@ signal remote_amplitude_changed(amplitude: float)
 ## Mostly useful for debugging, consider muting audio players instead for actual gameplay.
 @export var enabled: bool = true
 ## You get what this is
-@export var config: VoiceConfig
+@export var config: VoiceConfig:
+	set(value):
+		if config == value:
+			return
+		if config and config.config_changed.is_connected(_reinitialize):
+			config.config_changed.disconnect(_reinitialize)
+		config = value
+		if config and not config.config_changed.is_connected(_reinitialize):
+			config.config_changed.connect(_reinitialize)
 ## Name of the audio bus to capture audio from. If empty, uses direct audio input from the `AudioServer`
 ## which may fix issues in some cases with accumulating audio latency.
 @export var capture_bus_name: String = "VoiceCapture"
@@ -58,8 +66,6 @@ func _ready() -> void:
 	if config == null:
 		config = VoiceConfig.new()
 		push_warning("VoiceTransmitter: no VoiceConfig assigned, using defaults.")
-	else:
-		config = config.duplicate()
 	_reinitialize()
 
 	if not is_multiplayer_authority():
@@ -74,7 +80,7 @@ func _request_initial_config_sync() -> void:
 func _on_connected_for_initial_sync() -> void:
 	_request_config_sync.rpc_id(get_multiplayer_authority())
 
-@rpc("any_peer", "call_remote", "reliable")
+@rpc("any_peer", "call_local", "reliable")
 func _request_config_sync() -> void:
 	if not is_multiplayer_authority() or not multiplayer.has_multiplayer_peer():
 		return
@@ -83,8 +89,6 @@ func _request_config_sync() -> void:
 func _process(delta: float) -> void:
 	if not enabled:
 		return
-	if config.is_dirty():
-		_reinitialize()
 
 	if is_multiplayer_authority():
 		_transmit_tick(delta)
@@ -132,8 +136,6 @@ func _reinitialize() -> void:
 	for player in players:
 		if is_instance_valid(player):
 			_configure_player_stream(player)
-
-	config.mark_clean()
 
 	if is_multiplayer_authority() and multiplayer.has_multiplayer_peer():
 		_receive_config_update.rpc(config.to_dict())
@@ -251,13 +253,16 @@ func _configure_player_stream(node: Node) -> void:
 	var current_gen := node.stream as AudioStreamGenerator
 	if current_gen and is_equal_approx(current_gen.mix_rate, desired_rate):
 		return
+
+	var was_playing : bool = node.has_method("is_playing") and node.is_playing()
+
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = desired_rate
-	# Comfortably covers the jitter buffer's worst-case backlog with headroom,
-	# while staying well under the 0.5s default that would otherwise stack
-	# extra latency on top of the jitter buffer's own.
 	gen.buffer_length = maxf(0.1, (config.jitter_max_buffered_frames * config.opus_frame_duration_ms / 1000.0) * 2.0)
 	node.stream = gen
+
+	if was_playing:
+		node.play()
 
 
 func _clear_consumer_buffers() -> void:
