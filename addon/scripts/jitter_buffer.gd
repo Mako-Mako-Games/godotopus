@@ -5,6 +5,7 @@ class_name JitterBuffer
 var decoder: GodotOpusDecoder
 var target_depth_frames: int = 3
 var max_buffered_frames: int = 10
+var debug_log: bool = false
 
 var _expected_seq: int = -1
 var _raw_queue: Array[Dictionary] = [] # {seq: int, bytes: PackedByteArray}
@@ -13,10 +14,19 @@ var _primed: bool = false
 
 const SEQ_MODULO := 65536
 
-func configure(p_decoder: GodotOpusDecoder, p_target_depth_frames: int, p_max_buffered_frames: int) -> void:
+func configure(p_decoder: GodotOpusDecoder, p_target_depth_frames: int, p_max_buffered_frames: int, p_debug_log: bool = false) -> void:
 	decoder = p_decoder
 	target_depth_frames = max(1, p_target_depth_frames)
 	max_buffered_frames = max(target_depth_frames + 1, p_max_buffered_frames)
+	debug_log = p_debug_log
+
+## Number of received-but-not-yet-decoded packets currently buffered.
+func get_raw_queue_size() -> int:
+	return _raw_queue.size()
+
+## Number of decoded-but-not-yet-pulled PCM frames currently buffered.
+func get_decoded_queue_size() -> int:
+	return _decoded_queue.size()
 
 ## Call after a config hot-reload, or any time the decoder itself was
 ## recreated. Drops anything in flight and resets the decoder's internal
@@ -50,14 +60,23 @@ func process_tick() -> void:
 			return # still warming up — absorb arrival jitter before playing anything
 		_primed = true
 		_expected_seq = _raw_queue[0]["seq"]
+		if debug_log:
+			print("[JitterBuffer] primed with %d frames buffered, starting at seq %d" % [_raw_queue.size(), _expected_seq])
 
 	if _raw_queue.size() > max_buffered_frames:
-		# Backlog is badly out of control (e.g. we briefly stalled). Jump the
-		# expected sequence to the newest packet instead of grinding through
-		# the whole backlog one concealed frame at a time, which would just
-		# add latency in the name of "catching up".
-		var newest: Dictionary = _raw_queue[_raw_queue.size() - 1]
-		_expected_seq = newest["seq"]
+		# Backlog is badly out of control (this process, or the sender, stalled
+		# or froze for a while and a burst of packets all arrived at once).
+		# Draining it one frame at a time, like the catch-up policy below does
+		# for ordinary jitter, would take as many ticks as it took to build up,
+		# reproducing the same latency spike we are trying to bound. Resync
+		# immediately instead: keep only the newest target_depth_frames worth
+		# of arrivals and drop everything older outright.
+		var pre_trim_size := _raw_queue.size()
+		var keep_from := _raw_queue.size() - target_depth_frames
+		_raw_queue = _raw_queue.slice(keep_from)
+		_expected_seq = _raw_queue[0]["seq"]
+		if debug_log:
+			print("[JitterBuffer] backlog overflow: had %d frames buffered (max %d) -- dropped %d stale frames, resynced to seq %d" % [pre_trim_size, max_buffered_frames, pre_trim_size - _raw_queue.size(), _expected_seq])
 
 	# Catch-up policy: decode an extra packet this tick if backlog is above
 	# target, instead of ever dropping audio outright. Bounded latency without
@@ -94,6 +113,8 @@ func _decode_one_step() -> void:
 	# explicit signal from the sender at all.
 	var resync_gap_threshold := max_buffered_frames * 4
 	if diff > resync_gap_threshold:
+		if debug_log:
+			print("[JitterBuffer] sequence resync: gap of %d frames (expected %d, got %d) -- treating as reconnect" % [diff, _expected_seq, seq])
 		_raw_queue.pop_front()
 		_decoded_queue.append(decoder.decode(packet["bytes"]))
 		_expected_seq = _wrap(seq + 1)
@@ -110,14 +131,20 @@ func _decode_one_step() -> void:
 	var dred_samples_back := decoder.parse_dred(packet["bytes"])
 	var frame_size := decoder.get_frame_size()
 
+	var dred_recovered := 0
+	var plc_recovered := 0
 	for i in range(missing - 1):
 		var frames_before := missing - i
 		var needed_samples := frames_before * frame_size
 		if dred_samples_back >= needed_samples:
 			_decoded_queue.append(decoder.decode_dred(needed_samples))
+			dred_recovered += 1
 		else:
 			_decoded_queue.append(decoder.decode_plc())
+			plc_recovered += 1
 	_decoded_queue.append(decoder.decode_fec(packet["bytes"]))
+	if debug_log:
+		print("[JitterBuffer] gap of %d missing frame(s) before seq %d -- recovered %d via DRED, %d via PLC, 1 via FEC" % [missing, seq, dred_recovered, plc_recovered])
 
 	_raw_queue.pop_front()
 	_decoded_queue.append(decoder.decode(packet["bytes"]))

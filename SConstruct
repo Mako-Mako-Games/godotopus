@@ -317,4 +317,11 @@ addon = env.Command(
 # Ensure addon is copied after the library is built.
 env.Depends(addon, library)
 
+# SCons only reliably detects added/removed files in addon_src, not in-place
+# content edits to files that already existed (it does not hash a Dir source's
+# contents file-by-file). Rather than rely on that, always re-run the copy on
+# every invocation (cheap file I/O) so plain `scons` always mirrors whatever
+# is currently in addon/, never a stale copy from a previous build.
+env.AlwaysBuild(addon)
+
 Default(library, addon)
