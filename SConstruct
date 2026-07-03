@@ -10,11 +10,9 @@ env = SConscript("third-party/godot-cpp/SConstruct")
 # Output directories
 # -----------------------------------------------------------------------------
 
+addon_src = "addon"
 build_dir = "build/addons/godotopus"
 bin_dir = os.path.join(build_dir, "bin")
-
-gdextension_src = "addon/godotopus.gdextension"
-scripts_src = "addon/scripts"
 
 # -----------------------------------------------------------------------------
 # Generate speexdsp_config_types.h (normally produced by autoconf)
@@ -152,37 +150,22 @@ library = env.SharedLibrary(
 env.Depends(library, speex_config_types)
 
 # -----------------------------------------------------------------------------
-# Copy addon files
+# Copy addon folder
 # -----------------------------------------------------------------------------
 
 
-def copy_gdextension(target, source, env):
-    os.makedirs(build_dir, exist_ok=True)
-    shutil.copy2(gdextension_src, target[0].abspath)
-    print(f"Copied {gdextension_src}")
+def copy_addon(target, source, env):
+    shutil.copytree(addon_src, build_dir, dirs_exist_ok=True)
+    print(f"Copied {addon_src} -> {build_dir}")
 
 
-gdextension = env.Command(
-    os.path.join(build_dir, "godotopus.gdextension"),
-    gdextension_src,
-    copy_gdextension,
+addon = env.Command(
+    build_dir,
+    addon_src,
+    copy_addon,
 )
 
+# Ensure addon is copied after the library is built.
+env.Depends(addon, library)
 
-def copy_scripts(target, source, env):
-    dst = os.path.join(build_dir, "scripts")
-    shutil.copytree(scripts_src, dst, dirs_exist_ok=True)
-    print(f"Copied {scripts_src} -> {dst}")
-
-
-scripts = env.Command(
-    os.path.join(build_dir, "scripts"),
-    scripts_src,
-    copy_scripts,
-)
-
-# Ensure addon files are copied after the library is built.
-env.Depends(gdextension, library)
-env.Depends(scripts, library)
-
-Default(library, gdextension, scripts)
+Default(library, addon)

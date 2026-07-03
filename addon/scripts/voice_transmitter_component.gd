@@ -140,7 +140,6 @@ func _reinitialize() -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _receive_config_update(data: Dictionary) -> void:
-	Log.pr("VoiceTransmitter: received config update from authority")
 	config.apply_dict(data)
 
 # ── Transmit side ──────────────────────────────────────────────────────────
@@ -206,7 +205,6 @@ func _on_remote_stream_ended(stream_id: int) -> void:
 	stream_ended.emit(stream_id)
 
 func _begin_new_incoming_stream(stream_id: int) -> void:
-	Log.pr("Starting stream: " + str(stream_id) + " on peer: " + str(multiplayer.get_unique_id()) + " at time: " + str(Time.get_ticks_msec()))
 	_recv_stream_id = stream_id
 	_jitter_buffer.reset()
 	_clear_consumer_buffers()
