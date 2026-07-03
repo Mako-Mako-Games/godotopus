@@ -4,6 +4,10 @@
 
 A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus encoding and decoding.
 
+> [!WARNING]
+> This is a work in progress, and our first public addon. It was originally just an internal addon for our games. Anything might end up changing, and there are likely bugs. If you encounter any issues, please report them on the [GitHub Issues page](https://github.com/Mako-Mako-Games/godotopus/issues).
+
+
 ## Features
 
 * Voice activity detection
