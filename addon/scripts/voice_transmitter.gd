@@ -1,6 +1,9 @@
 extends Node
 class_name VoiceTransmitter
 
+## stream_id here is a purely local, presentational counter (not something
+## synchronized over the network) — see the comments on _local_stream_id /
+## _remote_stream_id below for why that's now the safer design.
 signal stream_started(stream_id: int)
 signal stream_ended(stream_id: int)
 signal local_amplitude_changed(amplitude: float)
@@ -35,7 +38,6 @@ signal remote_amplitude_changed(amplitude: float)
 			else:
 				_setup_player(player)
 
-var _vad: VoiceActivityDetector
 var _encoder: GodotOpusEncoder
 var _decoder: GodotOpusDecoder
 var _jitter_buffer: JitterBuffer
@@ -45,11 +47,20 @@ var _capture_resampler: GodotOpusResampler # only created if mic rate != opus ra
 var _output_resamplers: Dictionary = {}
 
 var _capture_accum: PackedFloat32Array = PackedFloat32Array()
-var _was_speaking: bool = false
-var _send_stream_id: int = 0
-var _send_sequence: int = 0
 
-var _recv_stream_id: int = -1
+# Continuously incrementing — only advances when a packet is actually sent.
+# There's no per-utterance stream ID on the wire anymore (see class comment
+# in jitter_buffer.gd): since silence is simply never transmitted, sequence
+# numbers naturally stay contiguous across a speech pause with no gap for
+# the receiver to misinterpret as packet loss, so there's nothing to reset
+# and no separate "stream boundary" concept needed at the protocol level.
+var _send_sequence: int = 0
+var _local_speaking: bool = false
+var _local_stream_id: int = 0 # local-only, just for a unique stream_started id
+
+var _remote_speaking: bool = false
+var _remote_stream_id: int = 0
+var _time_since_last_packet: float = 999.0
 
 var _capture_effect: AudioEffectCapture
 var _capture_bus_index: int = -1
@@ -93,20 +104,23 @@ func _process(delta: float) -> void:
 	if is_multiplayer_authority():
 		_transmit_tick(delta)
 
+	_time_since_last_packet += delta
+	if _remote_speaking and _time_since_last_packet > config.remote_silence_timeout_sec:
+		_remote_speaking = false
+		stream_ended.emit(_remote_stream_id)
+
 	_jitter_buffer.process_tick()
 	if _jitter_buffer.has_ready_frames():
 		var pcm := _flatten(_jitter_buffer.pull_ready_frames())
 		pcm = _apply_fade_in(pcm)
+		remote_amplitude_changed.emit(_rms(pcm))
 		_distribute_to_consumers(pcm)
 
 func _reinitialize() -> void:
-	if _was_speaking:
-		_announce_stream_ended()
-	_was_speaking = false
+	_local_speaking = false
+	_remote_speaking = false
+	_time_since_last_packet = 999.0
 	_capture_accum = PackedFloat32Array()
-
-	_vad = VoiceActivityDetector.new()
-	_vad.configure(config.vad_threshold, config.vad_release_threshold, config.vad_hang_time_sec)
 
 	var sample_rate := config.opus_sample_rate
 
@@ -117,13 +131,16 @@ func _reinitialize() -> void:
 	_encoder.set_expected_packet_loss(config.opus_expected_packet_loss_percent)
 	_encoder.set_inband_fec(true)
 	_encoder.set_signal_voice(true)
+	_encoder.set_dtx(config.use_dtx)
+	_encoder.set_dred_duration_ms(config.dred_duration_ms)
 
 	_decoder = GodotOpusDecoder.new()
 	_decoder.initialize(sample_rate, config.opus_channels, config.opus_frame_duration_ms)
+	_decoder.set_complexity(config.opus_decoder_complexity)
+	_decoder.set_bandwidth_extension(config.enable_bandwidth_extension)
 
 	_jitter_buffer = JitterBuffer.new()
 	_jitter_buffer.configure(_decoder, config.jitter_target_depth_frames, config.jitter_max_buffered_frames)
-	_recv_stream_id = -1
 
 	_output_resamplers.clear()
 
@@ -165,50 +182,43 @@ func _transmit_tick(delta: float) -> void:
 		_process_capture_frame(frame, delta)
 
 func _process_capture_frame(frame: PackedFloat32Array, delta: float) -> void:
-	var speaking := _vad.process(frame, delta)
-	local_amplitude_changed.emit(_vad.get_last_amplitude())
+	# Always hand the frame to Opus. With DTX enabled, its own RNN-based voice
+	# activity detector decides whether this is speech worth sending — encode()
+	# returns an empty (or tiny comfort-noise) packet for silence, and a normal
+	# packet for speech. That's the entire transmit decision; there's no
+	# amplitude threshold left for us to get wrong.
+	var opus_bytes := _encoder.encode(frame)
+	local_amplitude_changed.emit(_rms(frame))
 
-	if speaking and not _was_speaking:
-		_send_stream_id = _wrap(_send_stream_id + 1)
-		_send_sequence = 0
-		_encoder.reset()
-		_on_remote_stream_started.rpc(_send_stream_id)
-		stream_started.emit(_send_stream_id)
+	var speaking := opus_bytes.size() > 0 and not _encoder.is_in_dtx()
+	if speaking and not _local_speaking:
+		_local_stream_id = _wrap(_local_stream_id + 1)
+		stream_started.emit(_local_stream_id)
+	elif not speaking and _local_speaking:
+		stream_ended.emit(_local_stream_id)
+	_local_speaking = speaking
 
-	if speaking:
-		var opus_bytes := _encoder.encode(frame)
-		if opus_bytes.size() > 0:
-			_receive_voice_packet.rpc(opus_bytes, _send_sequence, _send_stream_id, _vad.get_last_amplitude())
-			_send_sequence = _wrap(_send_sequence + 1)
-	elif _was_speaking:
-		_announce_stream_ended()
-
-	_was_speaking = speaking
-
-func _announce_stream_ended() -> void:
-	_on_remote_stream_ended.rpc(_send_stream_id)
-	stream_ended.emit(_send_stream_id)
+	if opus_bytes.size() > 0:
+		_receive_voice_packet.rpc(opus_bytes, _send_sequence)
+		_send_sequence = _wrap(_send_sequence + 1)
 
 
 @rpc("authority", "call_remote", "unreliable_ordered")
-func _receive_voice_packet(opus_bytes: PackedByteArray, sequence: int, stream_id: int, amplitude: float) -> void:
-	if stream_id != _recv_stream_id:
-		_begin_new_incoming_stream(stream_id)
-	remote_amplitude_changed.emit(amplitude)
+func _receive_voice_packet(opus_bytes: PackedByteArray, sequence: int) -> void:
+	_time_since_last_packet = 0.0
+	if not _remote_speaking:
+		_remote_speaking = true
+		_remote_stream_id = _wrap(_remote_stream_id + 1)
+		stream_started.emit(_remote_stream_id)
+		_on_remote_activity_resumed()
 	_jitter_buffer.insert(opus_bytes, sequence)
 
-@rpc("authority", "call_remote", "reliable")
-func _on_remote_stream_started(stream_id: int) -> void:
-	_begin_new_incoming_stream(stream_id)
-	stream_started.emit(stream_id)
-
-@rpc("authority", "call_remote", "reliable")
-func _on_remote_stream_ended(stream_id: int) -> void:
-	stream_ended.emit(stream_id)
-
-func _begin_new_incoming_stream(stream_id: int) -> void:
-	_recv_stream_id = stream_id
-	_jitter_buffer.reset()
+## Called the moment packets start arriving again after a silence gap (real
+## or just the other end not talking). Doesn't touch the jitter buffer/decoder
+## state at all — see jitter_buffer.gd's reset() comment for why that's no
+## longer necessary here — just clears out any stale buffered silence on the
+## playback side and re-primes the fade-in so resuming audio doesn't click.
+func _on_remote_activity_resumed() -> void:
 	_clear_consumer_buffers()
 	_fade_in_total_samples = max(1, int(config.opus_sample_rate * FADE_IN_SEC))
 	_fade_in_samples_remaining = _fade_in_total_samples
@@ -356,6 +366,17 @@ func _flatten(frames: Array[PackedFloat32Array]) -> PackedFloat32Array:
 func _wrap(v: int) -> int:
 	return ((v % SEQ_MODULO) + SEQ_MODULO) % SEQ_MODULO
 
+## Cheap loudness meter for UI (mic level bars, "who's talking" glow, etc).
+## This is NOT a speech/silence decision — that's entirely Opus's job now
+## (see use_dtx) — just a level readout computed straight from PCM.
+func _rms(pcm: PackedFloat32Array) -> float:
+	if pcm.is_empty():
+		return 0.0
+	var sum_sq := 0.0
+	for sample in pcm:
+		sum_sq += sample * sample
+	return sqrt(sum_sq / pcm.size())
+
 func _get_audio_effect_capture() -> AudioEffectCapture:
 	if capture_bus_name == "":
 		return null
@@ -393,7 +414,10 @@ func _get_input_frames(count: int) -> PackedVector2Array:
 # ── Public introspection ───────────────────────────────────────────────────
 
 func is_locally_speaking() -> bool:
-	return is_multiplayer_authority() and _was_speaking
+	return is_multiplayer_authority() and _local_speaking
 
+## Purely a local, presentational counter (see class comment) — no longer a
+## network-synchronized stream ID, just something that changes every time a
+## new "utterance" from this remote peer is detected.
 func get_remote_stream_id() -> int:
-	return _recv_stream_id
+	return _remote_stream_id

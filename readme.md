@@ -10,9 +10,13 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 
 ## Features
 
-* Voice activity detection
-* Lightweight Opus encoding
-* Packet loss compensation
+* Voice activity detection via Opus's own RNN-based DTX — no hand-tuned
+  amplitude gate, and near-zero bandwidth while you're not talking
+* Lightweight Opus encoding, with in-band FEC for single-frame packet loss
+* Deep Redundancy (DRED) for recovering much longer packet loss bursts than
+  FEC alone can, plus libopus 1.5+'s DNN-based packet loss concealment and
+  1.6+'s blind bandwidth extension when built with `scons dred=yes` (see
+  [Building](#building))
 * Network jitter compensation
 * Config synchronization between peers
 * Easy configuration
@@ -87,11 +91,33 @@ Copy `build/addons/godotopus/` into your project's `addons/` folder.
 > scons
 > ```
 
+### Optional: DRED / DNN-based PLC / OSCE bandwidth extension
+
+libopus's deep-learning features (Deep REDundancy, DNN-based packet loss
+concealment, and OSCE speech enhancement + blind bandwidth extension) need a
+~130MB set of pretrained-weight source files that aren't checked into the
+`opus` submodule by default. They roughly double compile time and binary
+size, so they're opt-in:
+
+```bash
+scons dred=yes
+```
+
+The weights are downloaded automatically (and cached) the first time you
+build with this flag on. Without it, `VoiceConfig.dred_duration_ms` and
+`enable_bandwidth_extension` are harmless no-ops — everything else (DTX,
+in-band FEC, jitter buffer) works the same either way.
+
 ---
 
 ## About
 
 Godotopus is made by Mako Mako Games.
+
+* Berti - Programmer
+* Pockette - UI/UX
+* Sazarn - Artist
+
 
 We're a group of recent college graduates working on our first long-term Godot game. If you'd like to follow development, check out our YouTube channel.
 

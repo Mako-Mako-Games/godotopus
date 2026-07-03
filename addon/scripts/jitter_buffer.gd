@@ -18,9 +18,16 @@ func configure(p_decoder: GodotOpusDecoder, p_target_depth_frames: int, p_max_bu
 	target_depth_frames = max(1, p_target_depth_frames)
 	max_buffered_frames = max(target_depth_frames + 1, p_max_buffered_frames)
 
-## Call when the sender announces a new speech burst (stream_id changed) or
-## after a config hot-reload. Drops anything in flight so gap-detection and
-## FEC don't try to reach across a discontinuity that isn't a real packet loss.
+## Call after a config hot-reload, or any time the decoder itself was
+## recreated. Drops anything in flight and resets the decoder's internal
+## state so a stale sequence/decoder state from before doesn't leak in.
+##
+## NOT needed for normal speech pauses — since silence is simply not
+## transmitted at all (see VoiceConfig.use_dtx), there's no sequence gap or
+## decoder discontinuity to reset across in the first place. A genuinely
+## out-of-nowhere sequence jump (e.g. the sender reconnected) is instead
+## handled inline by _decode_one_step()'s resync guard below, without needing
+## an explicit signal from the sender.
 func reset() -> void:
 	_expected_seq = -1
 	_raw_queue.clear()
@@ -78,13 +85,38 @@ func _decode_one_step() -> void:
 		_raw_queue.pop_front()
 		return
 
-	# There's a gap: frames [_expected_seq, seq - 1] are missing. The one
-	# immediately before this packet gets a real FEC recovery attempt; any
-	# earlier ones in the same gap get plain concealment, since FEC can only
-	# ever reach back one frame.
+	# Sanity guard: a gap this large isn't real jitter or packet loss (those
+	# are bounded by max_buffered_frames), it's a sign the sequence space
+	# itself reset out from under us (sender reconnected, restarted, etc).
+	# Concealing a "gap" that size would be both nonsensical and expensive —
+	# just treat this packet as the start of a fresh sequence instead. This
+	# replaces the old reliable-RPC-driven stream reset, without needing any
+	# explicit signal from the sender at all.
+	var resync_gap_threshold := max_buffered_frames * 4
+	if diff > resync_gap_threshold:
+		_raw_queue.pop_front()
+		_decoded_queue.append(decoder.decode(packet["bytes"]))
+		_expected_seq = _wrap(seq + 1)
+		return
+
+	# There's a real gap: frames [_expected_seq, seq - 1] are missing. Try
+	# Deep Redundancy (DRED) first for the ones far enough back that plain
+	# FEC can't reach them — it's a harmless no-op (returns 0) if the packet
+	# has none, or this build doesn't support it, in which case we fall back
+	# to plain concealment exactly as before. The one immediately before this
+	# packet still gets FEC, which is cheaper and always available when the
+	# sender has in-band FEC enabled.
 	var missing := diff
+	var dred_samples_back := decoder.parse_dred(packet["bytes"])
+	var frame_size := decoder.get_frame_size()
+
 	for i in range(missing - 1):
-		_decoded_queue.append(decoder.decode_plc())
+		var frames_before := missing - i
+		var needed_samples := frames_before * frame_size
+		if dred_samples_back >= needed_samples:
+			_decoded_queue.append(decoder.decode_dred(needed_samples))
+		else:
+			_decoded_queue.append(decoder.decode_plc())
 	_decoded_queue.append(decoder.decode_fec(packet["bytes"]))
 
 	_raw_queue.pop_front()

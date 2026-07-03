@@ -1,8 +1,12 @@
 ﻿#!/usr/bin/env python
 
 import glob
+import hashlib
 import os
+import re
 import shutil
+import tarfile
+import urllib.request
 
 env = SConscript("third-party/godot-cpp/SConstruct")
 
@@ -68,6 +72,122 @@ opus_src = [
 ]
 
 # -----------------------------------------------------------------------------
+# Opus DNN features (DRED, DNN-based PLC, OSCE/BWE) — opt-in, heavy
+# -----------------------------------------------------------------------------
+#
+# libopus's deep-learning features (Deep REDundancy, DNN packet-loss
+# concealment, OSCE speech enhancement + blind bandwidth extension) need a
+# ~130MB set of pretrained-weight C source files that aren't checked into the
+# opus submodule (same as upstream — see third-party/opus/dnn/download_model.*).
+# They're only fetched/compiled when explicitly requested, since they roughly
+# double the binary size and compile time:
+#
+#   scons dred=yes
+#
+# The weights are downloaded straight into the (gitignored, untouched-by-us-
+# otherwise) opus submodule checkout, exactly where its own download script
+# would put them, and are cached there across builds — only re-fetched if
+# missing or if the pinned model hash in third-party/opus/autogen.sh changes.
+
+dred_enabled = ARGUMENTS.get("dred", "no").lower() in ("yes", "true", "1")
+
+opus_dnn_dir = "third-party/opus/dnn"
+opus_dnn_stamp = os.path.join(opus_dnn_dir, ".opus_dnn_weights.stamp")
+
+# Mirrors third-party/opus/lpcnet_sources.mk. The SIMD-dispatch variants
+# (dnn/x86, dnn/arm) are intentionally left out, same as the celt/x86 and
+# celt/arm equivalents already excluded from opus_src above.
+opus_dnn_deep_plc_src = [
+    "burg.c",
+    "freq.c",
+    "fargan.c",
+    "fargan_data.c",
+    "lpcnet_enc.c",
+    "lpcnet_plc.c",
+    "lpcnet_tables.c",
+    "nnet.c",
+    "nnet_default.c",
+    "plc_data.c",
+    "parse_lpcnet_weights.c",
+    "pitchdnn.c",
+    "pitchdnn_data.c",
+]
+opus_dnn_dred_src = [
+    "dred_rdovae_enc.c",
+    "dred_rdovae_enc_data.c",
+    "dred_rdovae_dec.c",
+    "dred_rdovae_dec_data.c",
+    "dred_rdovae_stats_data.c",
+    "dred_encoder.c",
+    "dred_coding.c",
+    "dred_decoder.c",
+]
+opus_dnn_osce_src = [
+    "osce.c",
+    "osce_features.c",
+    "nndsp.c",
+    "lace_data.c",
+    "nolace_data.c",
+    "bbwenet_data.c",
+]
+
+opus_dnn_filenames = opus_dnn_deep_plc_src + opus_dnn_dred_src + opus_dnn_osce_src
+opus_dnn_src = [os.path.join(opus_dnn_dir, f) for f in opus_dnn_filenames]
+
+
+def _pinned_opus_model_hash():
+    autogen_path = "third-party/opus/autogen.sh"
+    with open(autogen_path, "r") as f:
+        content = f.read()
+    match = re.search(r'download_model\.sh\s+"([0-9a-f]+)"', content)
+    if not match:
+        raise SCons.Errors.StopError(
+            "godotopus: could not find the pinned Opus DNN model hash in " + autogen_path
+        )
+    return match.group(1)
+
+
+def _download_opus_dnn_weights(target, source, env):
+    model_hash = _pinned_opus_model_hash()
+    archive_name = "opus_data-%s.tar.gz" % model_hash
+    archive_path = os.path.join(opus_dnn_dir, archive_name)
+    url = "https://media.xiph.org/opus/models/%s" % archive_name
+
+    if not os.path.isfile(archive_path):
+        print("godotopus: downloading Opus DNN model weights (~130MB) from %s ..." % url)
+        urllib.request.urlretrieve(url, archive_path)
+
+    print("godotopus: verifying Opus DNN model weights checksum...")
+    sha256 = hashlib.sha256()
+    with open(archive_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            sha256.update(chunk)
+    if sha256.hexdigest() != model_hash:
+        os.remove(archive_path)
+        raise SCons.Errors.StopError(
+            "godotopus: Opus DNN model download failed checksum verification, deleted. Try again."
+        )
+
+    print("godotopus: extracting Opus DNN model source files...")
+    with tarfile.open(archive_path, "r:gz") as tar:
+        members = [
+            m for m in tar.getmembers()
+            if m.name.startswith("dnn/") and m.name.endswith((".c", ".h"))
+        ]
+        tar.extractall("third-party/opus", members=members)
+
+
+if dred_enabled:
+    # Declaring every extracted .c we compile (not just the stamp) as a
+    # target lets SCons treat them as derived nodes it knows how to produce,
+    # instead of erroring out because they don't exist on disk yet.
+    dnn_weights = env.Command(
+        [opus_dnn_stamp] + opus_dnn_src,
+        "third-party/opus/autogen.sh",  # pins the model hash; re-fetches if it changes
+        _download_opus_dnn_weights,
+    )
+
+# -----------------------------------------------------------------------------
 # Opus configuration (isolated env — do not let these defines leak into
 # Speex or plugin sources)
 # -----------------------------------------------------------------------------
@@ -92,7 +212,23 @@ opus_env.Append(
     ]
 )
 
+if dred_enabled:
+    opus_env.Append(
+        CPPDEFINES=[
+            "ENABLE_DEEP_PLC",
+            "ENABLE_DRED",
+            "ENABLE_OSCE",
+            "ENABLE_OSCE_BWE",
+        ]
+    )
+    opus_env.Append(CPPPATH=[opus_dnn_dir])
+
 opus_objs = [opus_env.SharedObject(f) for f in opus_src]
+
+if dred_enabled:
+    opus_dnn_objs = [opus_env.SharedObject(f) for f in opus_dnn_src]
+    env.Depends(opus_dnn_objs, dnn_weights)
+    opus_objs += opus_dnn_objs
 
 # -----------------------------------------------------------------------------
 # SpeexDSP configuration (isolated env — do not let these defines leak into
@@ -155,6 +291,19 @@ env.Depends(library, speex_config_types)
 
 
 def copy_addon(target, source, env):
+    # Clean out anything previously mirrored from addon_src before re-copying
+    # (but leave bin/ alone, that's the compiled library, not part of
+    # addon_src). Otherwise files deleted from addon_src — like the old
+    # vad.gd — silently linger forever in build_dir instead of going away.
+    if os.path.isdir(build_dir):
+        for entry in os.listdir(build_dir):
+            if entry == "bin":
+                continue
+            path = os.path.join(build_dir, entry)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
     shutil.copytree(addon_src, build_dir, dirs_exist_ok=True)
     print(f"Copied {addon_src} -> {build_dir}")
 

@@ -83,34 +83,59 @@ signal config_changed
 		opus_expected_packet_loss_percent = value
 		_mark_dirty()
 
-## VAD amplitude is RMS over a frame, roughly 0.0-1.0 for normalized float PCM.
-## Higher values will make the VAD gate more aggressively, lower values will make it gentler.
-## (Note, the VAD is very simple right now, this will not work well for all voices or all environments.)
-@export_range(0.0, 1.0, 0.001) var vad_threshold: float = 0.02:
+## Lets Opus's own RNN-based voice activity detector decide when you're
+## actually talking, and skip transmitting when you're not (DTX -
+## Discontinuous Transmission). This replaces what used to be a hand-tuned
+## amplitude gate here — Opus's detector is trained on real speech/noise data
+## and is simply better at this than an RMS threshold could ever be, so there's
+## nothing left here for you to tune. Leave this on unless you have a very
+## specific reason not to (e.g. you always want to transmit, silence included).
+@export var use_dtx: bool = true:
 	set(value):
-		value = clampf(value, 0.0, 1.0)
-		if vad_threshold == value:
+		if use_dtx == value:
 			return
-		vad_threshold = value
+		use_dtx = value
 		_mark_dirty()
 
-## If the VAD is open, the RMS must drop below this threshold for it to start closing.
-## Make sure this is lower than vad_threshold, otherwise the VAD will never close.
-@export_range(0.0, 1.0, 0.001) var vad_release_threshold: float = 0.012:
+## Deep REDundancy (Opus 1.5+): embeds a compressed history of recent audio in
+## every packet, so a receiver who's missed several packets in a row can
+## recover far more of them than plain FEC (which only ever recovers the one
+## previous frame). 0 disables it. Costs some bitrate the higher you go, and
+## only actually does anything if this addon was built with `scons dred=yes`
+## (see README) — it's a harmless no-op otherwise, so it's safe to leave
+## nonzero either way.
+@export_range(0, 1000, 10) var dred_duration_ms: int = 0:
 	set(value):
-		value = clampf(value, 0.0, 1.0)
-		if vad_release_threshold == value:
+		value = clampi(value, 0, 1000)
+		if dred_duration_ms == value:
 			return
-		vad_release_threshold = value
+		dred_duration_ms = value
 		_mark_dirty()
 
-## How long to keep the VAD open after the RMS drops below vad_release_threshold.
-@export_range(0.0, 2.0, 0.01) var vad_hang_time_sec: float = 0.3:
+## Decode-side complexity, separate from opus_complexity (which is encode-side).
+## 0-10. Besides CPU cost, this also gates libopus 1.5+'s DNN-based packet loss
+## concealment (needs >=5) and OSCE speech enhancement (needs >=6, or >=7 for
+## the higher-quality variant) when this addon was built with DNN support —
+## higher here means meaningfully better-sounding recovery from packet loss,
+## not just CPU cost, so keep it high unless you're CPU constrained.
+@export_range(0, 10) var opus_decoder_complexity: int = 10:
 	set(value):
-		value = clampf(value, 0.0, 2.0)
-		if vad_hang_time_sec == value:
+		value = clampi(value, 0, 10)
+		if opus_decoder_complexity == value:
 			return
-		vad_hang_time_sec = value
+		opus_decoder_complexity = value
+		_mark_dirty()
+
+## OSCE blind Bandwidth Extension (Opus 1.6+): reconstructs full audio
+## bandwidth from a narrower encoded signal for free (no extra bits sent).
+## Only kicks in under specific conditions (decoding at 48kHz from a
+## wideband-only SILK signal) and is a harmless no-op otherwise (including on
+## builds without DNN support), so it's safe to just leave on.
+@export var enable_bandwidth_extension: bool = true:
+	set(value):
+		if enable_bandwidth_extension == value:
+			return
+		enable_bandwidth_extension = value
 		_mark_dirty()
 
 ## How many frames of audio the jitter buffer tries to keep in itself in case of network jitter.
@@ -131,6 +156,19 @@ signal config_changed
 		if jitter_max_buffered_frames == value:
 			return
 		jitter_max_buffered_frames = value
+		_mark_dirty()
+
+## How long (in seconds) to wait without receiving any packet from a remote
+## peer before considering their stream_ended (purely presentational, e.g.
+## for a "is talking" UI indicator). Since silence no longer transmits
+## anything at all (see use_dtx), this can't be inferred from the packets
+## themselves and needs a wall-clock timeout instead.
+@export_range(0.1, 3.0, 0.05) var remote_silence_timeout_sec: float = 0.5:
+	set(value):
+		value = clampf(value, 0.1, 3.0)
+		if remote_silence_timeout_sec == value:
+			return
+		remote_silence_timeout_sec = value
 		_mark_dirty()
 
 ## If true, VoiceTransmitter generates and assigns a correctly
@@ -169,11 +207,13 @@ func to_dict() -> Dictionary:
 		"opus_complexity": opus_complexity,
 		"opus_frame_duration_ms": opus_frame_duration_ms,
 		"opus_expected_packet_loss_percent": opus_expected_packet_loss_percent,
-		"vad_threshold": vad_threshold,
-		"vad_release_threshold": vad_release_threshold,
-		"vad_hang_time_sec": vad_hang_time_sec,
+		"use_dtx": use_dtx,
+		"dred_duration_ms": dred_duration_ms,
+		"opus_decoder_complexity": opus_decoder_complexity,
+		"enable_bandwidth_extension": enable_bandwidth_extension,
 		"jitter_target_depth_frames": jitter_target_depth_frames,
 		"jitter_max_buffered_frames": jitter_max_buffered_frames,
+		"remote_silence_timeout_sec": remote_silence_timeout_sec,
 		"auto_configure_players": auto_configure_players,
 	}
 
@@ -193,15 +233,19 @@ func apply_dict(d: Dictionary) -> void:
 		opus_frame_duration_ms = d["opus_frame_duration_ms"]
 	if d.has("opus_expected_packet_loss_percent"):
 		opus_expected_packet_loss_percent = d["opus_expected_packet_loss_percent"]
-	if d.has("vad_threshold"):
-		vad_threshold = d["vad_threshold"]
-	if d.has("vad_release_threshold"):
-		vad_release_threshold = d["vad_release_threshold"]
-	if d.has("vad_hang_time_sec"):
-		vad_hang_time_sec = d["vad_hang_time_sec"]
+	if d.has("use_dtx"):
+		use_dtx = d["use_dtx"]
+	if d.has("dred_duration_ms"):
+		dred_duration_ms = d["dred_duration_ms"]
+	if d.has("opus_decoder_complexity"):
+		opus_decoder_complexity = d["opus_decoder_complexity"]
+	if d.has("enable_bandwidth_extension"):
+		enable_bandwidth_extension = d["enable_bandwidth_extension"]
 	if d.has("jitter_target_depth_frames"):
 		jitter_target_depth_frames = d["jitter_target_depth_frames"]
 	if d.has("jitter_max_buffered_frames"):
 		jitter_max_buffered_frames = d["jitter_max_buffered_frames"]
+	if d.has("remote_silence_timeout_sec"):
+		remote_silence_timeout_sec = d["remote_silence_timeout_sec"]
 	if d.has("auto_configure_players"):
 		auto_configure_players = d["auto_configure_players"]
