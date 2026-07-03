@@ -267,7 +267,7 @@ func _clear_consumer_buffers() -> void:
 		if not is_instance_valid(player):
 			continue
 		var playback: AudioStreamGeneratorPlayback = player.get_stream_playback()
-		if playback:
+		if playback and not playback.is_playing():
 			playback.clear_buffer()
 
 func _distribute_to_consumers(pcm: PackedFloat32Array) -> void:
