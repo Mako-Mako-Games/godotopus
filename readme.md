@@ -131,9 +131,8 @@ Godotopus is made by Mako Mako Games.
 * Pockette - UI/UX 
 * Sazarn - Artist
 
-
-We're a group of recent college graduates working on our first long-term Godot game. If you'd like to follow development, check out our YouTube channel.
-
-[![YouTube Logo](youtube-logo.png)](https://www.youtube.com/@MakoMakoDev)
+We're a group of recent college graduates working on our first long-term Godot game!
+If you'd like to follow development, check out our YouTube channel.
+We'll also be releasing a devlog following the development of Godotopus soon!
 
 https://www.youtube.com/@MakoMakoDev
