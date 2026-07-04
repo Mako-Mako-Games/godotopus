@@ -115,6 +115,8 @@ const SEQ_MODULO := 65536
 # this: it is strictly better to always decode at full quality.
 const DECODE_SAMPLE_RATE := 48000
 
+const _rpc_channel : int = 524
+
 func _ready() -> void:
 	process_mode = PROCESS_MODE_ALWAYS if process_while_paused else PROCESS_MODE_PAUSABLE
 	if config == null:
@@ -134,7 +136,7 @@ func _request_initial_config_sync() -> void:
 func _on_connected_for_initial_sync() -> void:
 	_request_config_sync.rpc_id(get_multiplayer_authority())
 
-@rpc("any_peer", "call_local", "reliable")
+@rpc("any_peer", "call_local", "reliable", _rpc_channel)
 func _request_config_sync() -> void:
 	if not is_multiplayer_authority() or not multiplayer.has_multiplayer_peer():
 		return
@@ -209,7 +211,7 @@ func _reinitialize() -> void:
 	if is_multiplayer_authority() and multiplayer.has_multiplayer_peer():
 		_receive_config_update.rpc(config.to_dict())
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_remote", "reliable", _rpc_channel)
 func _receive_config_update(data: Dictionary) -> void:
 	config.apply_dict(data)
 
@@ -282,7 +284,7 @@ func _process_capture_frame(frame: PackedFloat32Array, delta: float) -> void:
 		_send_sequence = _wrap(_send_sequence + 1)
 
 
-@rpc("authority", "call_remote", "unreliable_ordered")
+@rpc("authority", "call_remote", "unreliable_ordered", _rpc_channel)
 func _receive_voice_packet(opus_bytes: PackedByteArray, sequence: int) -> void:
 	_time_since_last_packet = 0.0
 	if not _remote_speaking:
