@@ -115,7 +115,7 @@ const SEQ_MODULO := 65536
 # this: it is strictly better to always decode at full quality.
 const DECODE_SAMPLE_RATE := 48000
 
-const _rpc_channel : int = 524
+const _rpc_channel : int = 3
 
 func _ready() -> void:
 	process_mode = PROCESS_MODE_ALWAYS if process_while_paused else PROCESS_MODE_PAUSABLE
