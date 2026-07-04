@@ -305,16 +305,8 @@ sources = glob.glob("src/*.cpp") + opus_objs + [speex_obj]
 
 lib_name = "libgodotopus"
 
-# When the DNN features are enabled the binary is functionally different
-# (and roughly double the size) from the plain build, so it gets its own
-# filename rather than silently overwriting/being overwritten by the non-DNN
-# build. This lets both variants be built into the same bin/ directory (and
-# packaged into the same addon) side by side, with the .gdextension file
-# picking whichever one it wants per-platform.
-dnn_suffix = ".dnn" if dnn_enabled else ""
-
 library = env.SharedLibrary(
-    os.path.join(bin_dir, f"{lib_name}{dnn_suffix}{env['suffix']}{env['SHLIBSUFFIX']}"),
+    os.path.join(bin_dir, f"{lib_name}{env['suffix']}{env['SHLIBSUFFIX']}"),
     source=sources,
 )
 env.Depends(library, speex_config_types)

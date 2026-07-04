@@ -84,31 +84,40 @@ jobs:
         with:
           path: artifacts
 
-      - name: Assemble addon
+      - name: Assemble no-dnn addon
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p package/addons
-          cp -r addon package/addons/godotopus
-          mkdir -p package/addons/godotopus/bin
-          # Copy per-platform, per-dnn-variant artifact folders into the same
-          # bin/ dir. This is safe because SConstruct gives the dnn=yes
-          # binaries their own filename (libgodotopus.dnn.*), so the no/yes
-          # variants for a given platform never collide with each other, and
-          # different platforms never collide since they use different
-          # SHLIBSUFFIX/suffix combos.
-          for dir in artifacts/*/; do
+          mkdir -p package-no-dnn/addons
+          cp -r addon package-no-dnn/addons/godotopus
+          mkdir -p package-no-dnn/addons/godotopus/bin
+          for dir in artifacts/*-dnnno-bin/; do
             artifact_name=$(basename "$dir")
-            cp -r "$dir"/* package/addons/godotopus/bin/
+            cp -r "$dir"/* package-no-dnn/addons/godotopus/bin/
             echo "Copied $artifact_name binaries"
           done
-          echo "Final bin contents:"
-          ls -la package/addons/godotopus/bin
+          echo "Final no-dnn bin contents:"
+          ls -la package-no-dnn/addons/godotopus/bin
 
-      - name: Create ZIP
+      - name: Assemble dnn addon
+        shell: bash
         run: |
-          cd package
-          zip -r ../godotopus-${{ inputs.tag }}.zip addons
+          set -euo pipefail
+          mkdir -p package-dnn/addons
+          cp -r addon package-dnn/addons/godotopus
+          mkdir -p package-dnn/addons/godotopus/bin
+          for dir in artifacts/*-dnnyes-bin/; do
+            artifact_name=$(basename "$dir")
+            cp -r "$dir"/* package-dnn/addons/godotopus/bin/
+            echo "Copied $artifact_name binaries"
+          done
+          echo "Final dnn bin contents:"
+          ls -la package-dnn/addons/godotopus/bin
+
+      - name: Create ZIPs
+        run: |
+          (cd package-no-dnn && zip -r ../godotopus-${{ inputs.tag }}-no-dnn.zip addons)
+          (cd package-dnn && zip -r ../godotopus-${{ inputs.tag }}.zip addons)
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2
@@ -116,4 +125,6 @@ jobs:
           tag_name: ${{ inputs.tag }}
           draft: true
           generate_release_notes: true
-          files: godotopus-${{ inputs.tag }}.zip
+          files: |
+            godotopus-${{ inputs.tag }}.zip
+            godotopus-${{ inputs.tag }}-no-dnn.zip
