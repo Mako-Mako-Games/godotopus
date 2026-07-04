@@ -82,14 +82,14 @@ opus_src = [
 # They're only fetched/compiled when explicitly requested, since they roughly
 # double the binary size and compile time:
 #
-#   scons dred=yes
+#   scons dnn=yes
 #
 # The weights are downloaded straight into the (gitignored, untouched-by-us-
 # otherwise) opus submodule checkout, exactly where its own download script
 # would put them, and are cached there across builds — only re-fetched if
 # missing or if the pinned model hash in third-party/opus/autogen.sh changes.
 
-dred_enabled = ARGUMENTS.get("dred", "no").lower() in ("yes", "true", "1")
+dnn_enabled = ARGUMENTS.get("dnn", "no").lower() in ("yes", "true", "1")
 
 opus_root = "third-party/opus"
 opus_dnn_dir = os.path.join(opus_root, "dnn")
@@ -187,7 +187,7 @@ def _download_opus_dnn_weights(target, source, env):
         tar.extractall("third-party/opus", members=members)
 
 
-if dred_enabled:
+if dnn_enabled:
     # Only declare the files actually produced by extracting the weights
     # archive as targets here (see opus_dnn_downloaded_src comment above) --
     # NOT the full opus_dnn_src list, most of which is regular submodule
@@ -223,7 +223,7 @@ opus_env.Append(
     ]
 )
 
-if dred_enabled:
+if dnn_enabled:
     opus_env.Append(
         CPPDEFINES=[
             "ENABLE_DEEP_PLC",
@@ -241,7 +241,7 @@ if dred_enabled:
 
 opus_objs = [opus_env.SharedObject(f) for f in opus_src]
 
-if dred_enabled:
+if dnn_enabled:
     # The base opus_objs above are compiled with ENABLE_DEEP_PLC/ENABLE_DRED/
     # ENABLE_OSCE(_BWE) too (see opus_env.Append CPPDEFINES above), so files
     # like opus_decoder.c/opus_encoder.c/celt_decoder.c transitively need
@@ -305,8 +305,16 @@ sources = glob.glob("src/*.cpp") + opus_objs + [speex_obj]
 
 lib_name = "libgodotopus"
 
+# When the DNN features are enabled the binary is functionally different
+# (and roughly double the size) from the plain build, so it gets its own
+# filename rather than silently overwriting/being overwritten by the non-DNN
+# build. This lets both variants be built into the same bin/ directory (and
+# packaged into the same addon) side by side, with the .gdextension file
+# picking whichever one it wants per-platform.
+dnn_suffix = ".dnn" if dnn_enabled else ""
+
 library = env.SharedLibrary(
-    os.path.join(bin_dir, f"{lib_name}{env['suffix']}{env['SHLIBSUFFIX']}"),
+    os.path.join(bin_dir, f"{lib_name}{dnn_suffix}{env['suffix']}{env['SHLIBSUFFIX']}"),
     source=sources,
 )
 env.Depends(library, speex_config_types)

@@ -21,7 +21,7 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 * Easy configuration
 * Output to multiple audio players (great for radios or clever effects!)
 * Supports all `AudioStreamPlayer` node types
-* Buildable without DDN-based features for much smaller compiled sizes
+* Buildable without DNN-based features for much smaller compiled sizes
 
 
 ## Future Improvements
@@ -38,7 +38,7 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 
 ## Installation
 
-1. Download the latest release for your platform.
+1. Download the latest release for your platform. Releases include both the DNN-enabled and non-DNN binaries side by side.
 2. Extract it into your project's `addons/` folder.
 3. Enable the plugin in **Project Settings → Plugins**.
 
@@ -115,10 +115,10 @@ Copy `build/addons/godotopus/` into your project's `addons/` folder.
 ### Optional: DNN-based features
 
 libopus's deep-learning features need a set of pretrained-weight source files that aren't checked into the
-`opus` submodule by default. They largely increase the size of the compiled library, so a version with and without is available. To build with them, use the `dred=yes` flag:
+`opus` submodule by default. They largely increase the size of the compiled library, so a version with and without is available. To build with them, use the `dnn=yes` flag:
 
 ```bash
-scons dred=yes
+scons dnn=yes
 ```
 
 ---
