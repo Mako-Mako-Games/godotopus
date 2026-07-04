@@ -5,28 +5,34 @@
 A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus encoding and decoding.
 
 > [!WARNING]
-> This is a work in progress, and our first public addon. It was originally just an internal addon for our games. Anything might end up changing, and there are likely bugs. If you encounter any issues, please report them on the [GitHub Issues page](https://github.com/Mako-Mako-Games/godotopus/issues).
+> This is a work in progress. It was originally just an internal addon for our games. Anything might end up changing, and there are likely lots of bugs. If you encounter any issues, or are super smart and have a better idea of what's going on than I do, please make an issue on the [GitHub Issues page](https://github.com/Mako-Mako-Games/godotopus/issues).
 
 
 ## Features
 
-* Voice activity detection via Opus's own RNN-based DTX — no hand-tuned
-  amplitude gate, and near-zero bandwidth while you're not talking
-* Lightweight Opus encoding, with in-band FEC for single-frame packet loss
-* Deep Redundancy (DRED) for recovering much longer packet loss bursts than
-  FEC alone can, plus libopus 1.5+'s DNN-based packet loss concealment and
-  1.6+'s blind bandwidth extension when built with `scons dred=yes` (see
-  [Building](#building))
-* Network jitter compensation with a hard safety valve — a stall (yours or a
-  peer's) resyncs to the latest audio instead of ever building up a growing
-  latency backlog
-* Keeps working across local `SceneTree` pauses (debug menus, pause menus,
-  etc.) instead of freezing and then dumping a latency spike on resume
+* Opus encoding
+* Plug-and-play. (as much as possible, anyway)
+* Voice activity detection via Opus's DTX for reduced bandwidth usage when no one is talking
+* FEC (forward error correction) for recovering short burst packet loss
+* Opus Bandwidth Extension for recreating high frequencies on medium bitrate settings
+* Deep Redundancy (DRED) for recovering much longer packet loss bursts
+* Network jitter compensation
 * Config synchronization between peers
-* Easy configuration, with an optional latency/diagnostics logging mode
-  (`VoiceConfig.debug_log_latency`) to help track down buffering issues
-* Output to multiple audio players
+* Easy configuration
+* Output to multiple audio players (great for radios or clever effects!)
 * Supports all `AudioStreamPlayer` node types
+* Buildable without DDN-based features for much smaller compiled sizes
+
+
+## Future Improvements
+
+* Microphone pre-processing effects (noise suppression, AGC, etc.)
+* Better networking solution than base RPC
+* Port all scripts to C++ (maybe...)
+* Code quality improvements (there's a lot of spaghetti in here)
+* Squeeze as much latency out of the system as possible
+* Clearer name???
+
 
 ---
 
@@ -43,19 +49,16 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 Godotopus supports two methods of capturing microphone input:
 
 * **Direct AudioServer Input** (default, recommended) - Pulls mic input
-  straight from the `AudioServer`, bypassing Godot's audio bus/effect graph
-  entirely.
+  straight from the `AudioServer`, bypassing Godot's audio bus entirely.
 * **Capture Bus** - Routes the microphone through a Godot audio bus first, so
   you can apply bus effects (e.g. a noise gate) to it before encoding.
 
 > [!WARNING]
-> The Capture Bus path has a confirmed Godot engine issue where its internal
-> buffering can build up several seconds of latency across engine
-> hitches/`SceneTree` pauses, in a way Direct AudioServer Input does not
-> exhibit at all. This isn't something Godotopus can work around at the
-> script level — it's the entire reason Direct AudioServer Input exists.
+> The Capture Bus path has a tricky Godot engine issue where it may build up multiply seconds of latency in a way Direct AudioServer Input does not
+> exhibit at all. This isn't something I know of a way to work around, and is the reason 
+> Direct AudioServer Input exists.
 > Only use Capture Bus if you specifically need bus effects on the mic
-> signal before it's encoded, and accept that latency tradeoff.
+> signal before it's encoded, and accept that reliability tradeoff.
 
 ### Direct AudioServer Input
 
@@ -76,7 +79,7 @@ Godotopus supports two methods of capturing microphone input:
 
 > **Note**
 >
-> Make _SURE_ you don't end up creating multiple microphone recording AudioStreamPlayer nodes. I spent 5 hours straight trying to figure out why people's voices were playing back twice just because I added it under a scene that gets instantiated multiple times!
+> Make _SURE_ you don't end up creating multiple microphone recording AudioStreamPlayer nodes. I spent 5 hours straight trying to figure out why people's voices were playing back twice, just because I added one under a scene that gets instantiated twice!
 
 ---
 
@@ -109,22 +112,14 @@ Copy `build/addons/godotopus/` into your project's `addons/` folder.
 > scons
 > ```
 
-### Optional: DRED / DNN-based PLC / OSCE bandwidth extension
+### Optional: DNN-based features
 
-libopus's deep-learning features (Deep REDundancy, DNN-based packet loss
-concealment, and OSCE speech enhancement + blind bandwidth extension) need a
-~130MB set of pretrained-weight source files that aren't checked into the
-`opus` submodule by default. They roughly double compile time and binary
-size, so they're opt-in:
+libopus's deep-learning features need a set of pretrained-weight source files that aren't checked into the
+`opus` submodule by default. They largely increase the size of the compiled library, so a version with and without is available. To build with them, use the `dred=yes` flag:
 
 ```bash
 scons dred=yes
 ```
-
-The weights are downloaded automatically (and cached) the first time you
-build with this flag on. Without it, `VoiceConfig.dred_duration_ms` and
-`enable_bandwidth_extension` are harmless no-ops — everything else (DTX,
-in-band FEC, jitter buffer) works the same either way.
 
 ---
 
@@ -132,8 +127,8 @@ in-band FEC, jitter buffer) works the same either way.
 
 Godotopus is made by Mako Mako Games.
 
-* Berti - Programmer
-* Pockette - UI/UX
+* Berti - Programmer (me)
+* Pockette - UI/UX 
 * Sazarn - Artist
 
 
