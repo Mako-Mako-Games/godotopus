@@ -24,6 +24,9 @@ int compute_frame_size(int p_sample_rate, int p_frame_duration_ms) {
 	}
 }
 
+// DRED duration is configured in 10ms units on the wire.
+constexpr int DRED_FRAME_MS = 10;
+
 } // namespace
 
 // ── GodotOpusEncoder ──────────────────────────────────────────────────────────────
@@ -41,6 +44,10 @@ void GodotOpusEncoder::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_inband_fec", "enabled"), &GodotOpusEncoder::set_inband_fec);
 	ClassDB::bind_method(D_METHOD("set_expected_packet_loss", "percent"), &GodotOpusEncoder::set_expected_packet_loss);
 	ClassDB::bind_method(D_METHOD("set_dtx", "enabled"), &GodotOpusEncoder::set_dtx);
+	ClassDB::bind_method(D_METHOD("is_in_dtx"), &GodotOpusEncoder::is_in_dtx);
+	ClassDB::bind_method(D_METHOD("set_dred_duration_ms", "duration_ms"), &GodotOpusEncoder::set_dred_duration_ms);
+	ClassDB::bind_method(D_METHOD("get_dred_duration_ms"), &GodotOpusEncoder::get_dred_duration_ms);
+	ClassDB::bind_method(D_METHOD("has_dred_support"), &GodotOpusEncoder::has_dred_support);
 	ClassDB::bind_method(D_METHOD("reset"), &GodotOpusEncoder::reset);
 
 	ClassDB::bind_method(D_METHOD("set_frame_size", "frame_size"), &GodotOpusEncoder::set_frame_size);
@@ -67,8 +74,8 @@ void GodotOpusEncoder::initialize(int p_sample_rate, int p_channels, int p_frame
 	}
 
 	// Defaults tuned for real-time voice. VoiceTransmitterComponent overrides
-	// bitrate/complexity/expected-loss from VoiceConfig right after this call;
-	// these are just sane fallbacks if used standalone.
+	// bitrate/complexity/expected-loss/DTX/DRED from VoiceConfig right after
+	// this call; these are just sane fallbacks if used standalone.
 	opus_encoder_ctl(encoder, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
 	opus_encoder_ctl(encoder, OPUS_SET_BITRATE(24000));
 	opus_encoder_ctl(encoder, OPUS_SET_VBR(1));
@@ -76,10 +83,9 @@ void GodotOpusEncoder::initialize(int p_sample_rate, int p_channels, int p_frame
 	opus_encoder_ctl(encoder, OPUS_SET_COMPLEXITY(10));
 	opus_encoder_ctl(encoder, OPUS_SET_INBAND_FEC(1));
 	opus_encoder_ctl(encoder, OPUS_SET_PACKET_LOSS_PERC(10));
-	// DTX deliberately OFF: the app-level VAD already decides when to send at
-	// all, so an independent encoder-side silence detector would just be a
-	// second, possibly-disagreeing source of truth for the same decision.
-	opus_encoder_ctl(encoder, OPUS_SET_DTX(0));
+	// Opus's own RNN-based VAD decides speech vs. silence from here on;
+	// see set_dtx()'s comment for why we don't reimplement that ourselves.
+	opus_encoder_ctl(encoder, OPUS_SET_DTX(1));
 }
 
 PackedByteArray GodotOpusEncoder::encode(const PackedFloat32Array &p_pcm) {
@@ -111,6 +117,9 @@ PackedByteArray GodotOpusEncoder::encode(const PackedFloat32Array &p_pcm) {
 		return result;
 	}
 
+	// With DTX on, Opus itself returns 0 (or 1-2) bytes for "nothing new to
+	// send" during silence — callers should treat an empty/tiny result as
+	// "don't transmit this frame" rather than us guessing from amplitude.
 	result.resize(bytes_written);
 	return result;
 }
@@ -168,6 +177,45 @@ void GodotOpusEncoder::set_dtx(bool p_enabled) {
 	}
 }
 
+bool GodotOpusEncoder::is_in_dtx() const {
+	if (!encoder) {
+		return false;
+	}
+	opus_int32 in_dtx = 0;
+	opus_encoder_ctl(encoder, OPUS_GET_IN_DTX(&in_dtx));
+	return in_dtx != 0;
+}
+
+void GodotOpusEncoder::set_dred_duration_ms(int p_duration_ms) {
+	if (!encoder) {
+		return;
+	}
+	int frames = p_duration_ms > 0 ? p_duration_ms / DRED_FRAME_MS : 0;
+	// Harmless no-op (returns OPUS_UNIMPLEMENTED) if this build of libopus
+	// wasn't compiled with DRED support — safe to always call.
+	opus_encoder_ctl(encoder, OPUS_SET_DRED_DURATION(frames));
+}
+
+int GodotOpusEncoder::get_dred_duration_ms() const {
+	if (!encoder) {
+		return 0;
+	}
+	opus_int32 frames = 0;
+	opus_encoder_ctl(encoder, OPUS_GET_DRED_DURATION(&frames));
+	return (int)frames * DRED_FRAME_MS;
+}
+
+bool GodotOpusEncoder::has_dred_support() const {
+	if (!encoder) {
+		return false;
+	}
+	// Pure query, no side effects: only succeeds if this build was actually
+	// compiled with ENABLE_DRED (see OPUS_SET_DRED_DURATION_REQUEST's #ifdef
+	// in opus_encoder.c — the request doesn't exist at all otherwise).
+	opus_int32 frames = 0;
+	return opus_encoder_ctl(encoder, OPUS_GET_DRED_DURATION(&frames)) == OPUS_OK;
+}
+
 void GodotOpusEncoder::reset() {
 	if (encoder) {
 		opus_encoder_ctl(encoder, OPUS_RESET_STATE);
@@ -205,7 +253,15 @@ void GodotOpusDecoder::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("decode", "packet"), &GodotOpusDecoder::decode);
 	ClassDB::bind_method(D_METHOD("decode_plc"), &GodotOpusDecoder::decode_plc);
 	ClassDB::bind_method(D_METHOD("decode_fec", "next_packet"), &GodotOpusDecoder::decode_fec);
+	ClassDB::bind_method(D_METHOD("parse_dred", "packet"), &GodotOpusDecoder::parse_dred);
+	ClassDB::bind_method(D_METHOD("decode_dred", "samples_back"), &GodotOpusDecoder::decode_dred);
 	ClassDB::bind_method(D_METHOD("reset"), &GodotOpusDecoder::reset);
+
+	ClassDB::bind_method(D_METHOD("set_complexity", "complexity"), &GodotOpusDecoder::set_complexity);
+	ClassDB::bind_method(D_METHOD("get_complexity"), &GodotOpusDecoder::get_complexity);
+	ClassDB::bind_method(D_METHOD("set_bandwidth_extension", "enabled"), &GodotOpusDecoder::set_bandwidth_extension);
+	ClassDB::bind_method(D_METHOD("get_bandwidth_extension"), &GodotOpusDecoder::get_bandwidth_extension);
+	ClassDB::bind_method(D_METHOD("has_bandwidth_extension_support"), &GodotOpusDecoder::has_bandwidth_extension_support);
 
 	ClassDB::bind_method(D_METHOD("set_frame_size", "frame_size"), &GodotOpusDecoder::set_frame_size);
 	ClassDB::bind_method(D_METHOD("get_frame_size"), &GodotOpusDecoder::get_frame_size);
@@ -218,6 +274,16 @@ void GodotOpusDecoder::initialize(int p_sample_rate, int p_channels, int p_frame
 		opus_decoder_destroy(decoder);
 		decoder = nullptr;
 	}
+	if (dred_decoder) {
+		opus_dred_decoder_destroy(dred_decoder);
+		dred_decoder = nullptr;
+	}
+	if (dred_state) {
+		opus_dred_free(dred_state);
+		dred_state = nullptr;
+	}
+	dred_state_valid = false;
+
 	sample_rate = p_sample_rate;
 	channels = p_channels;
 	frame_size = compute_frame_size(sample_rate, p_frame_duration_ms);
@@ -227,6 +293,24 @@ void GodotOpusDecoder::initialize(int p_sample_rate, int p_channels, int p_frame
 	if (error != OPUS_OK) {
 		UtilityFunctions::printerr("GodotOpusDecoder: failed to create decoder: ", opus_strerror(error));
 		decoder = nullptr;
+	}
+}
+
+void GodotOpusDecoder::_ensure_dred_decoder() {
+	if (dred_decoder) {
+		return;
+	}
+	int error = OPUS_OK;
+	dred_decoder = opus_dred_decoder_create(&error);
+	if (error != OPUS_OK && dred_decoder) {
+		opus_dred_decoder_destroy(dred_decoder);
+		dred_decoder = nullptr;
+	}
+	if (dred_decoder && !dred_state) {
+		dred_state = opus_dred_alloc(&error);
+		if (error != OPUS_OK) {
+			dred_state = nullptr;
+		}
 	}
 }
 
@@ -315,10 +399,110 @@ PackedFloat32Array GodotOpusDecoder::decode_fec(const PackedByteArray &p_next_pa
 	return result;
 }
 
+bool GodotOpusDecoder::parse_dred(const PackedByteArray &p_packet) {
+	dred_state_valid = false;
+
+	if (!decoder || p_packet.size() == 0) {
+		return false;
+	}
+
+	_ensure_dred_decoder();
+	if (!dred_decoder || !dred_state) {
+		return false;
+	}
+
+	int dred_end = 0;
+	int offset = opus_dred_parse(
+		dred_decoder,
+		dred_state,
+		p_packet.ptr(),
+		p_packet.size(),
+		sample_rate,
+		sample_rate,
+		&dred_end,
+		0
+	);
+
+	if (offset <= 0) {
+		return false;
+	}
+
+	dred_state_valid = true;
+	return true;
+}
+
+PackedFloat32Array GodotOpusDecoder::decode_dred(int p_samples_back) {
+	PackedFloat32Array result;
+
+	if (!decoder || !dred_state_valid || p_samples_back <= 0) {
+		return result;
+	}
+
+	result.resize(frame_size * channels);
+
+	int samples_decoded = opus_decoder_dred_decode_float(
+		decoder,
+		dred_state,
+		p_samples_back,
+		result.ptrw(),
+		frame_size
+	);
+
+
+	if (samples_decoded < 0) {
+		result.clear();
+		return result;
+	}
+
+	result.resize(samples_decoded * channels);
+	return result;
+}
+
 void GodotOpusDecoder::reset() {
 	if (decoder) {
 		opus_decoder_ctl(decoder, OPUS_RESET_STATE);
 	}
+	dred_state_valid = false;
+}
+
+void GodotOpusDecoder::set_complexity(int p_complexity) {
+	if (decoder) {
+		opus_decoder_ctl(decoder, OPUS_SET_COMPLEXITY(p_complexity));
+	}
+}
+
+int GodotOpusDecoder::get_complexity() const {
+	if (!decoder) {
+		return 0;
+	}
+	opus_int32 complexity = 0;
+	opus_decoder_ctl(decoder, OPUS_GET_COMPLEXITY(&complexity));
+	return (int)complexity;
+}
+
+void GodotOpusDecoder::set_bandwidth_extension(bool p_enabled) {
+	if (decoder) {
+		// Harmless no-op (returns OPUS_UNIMPLEMENTED) if this build of libopus
+		// wasn't compiled with ENABLE_OSCE_BWE — safe to always call.
+		opus_decoder_ctl(decoder, OPUS_SET_OSCE_BWE(p_enabled ? 1 : 0));
+	}
+}
+
+bool GodotOpusDecoder::get_bandwidth_extension() const {
+	if (!decoder) {
+		return false;
+	}
+	opus_int32 enabled = 0;
+	opus_decoder_ctl(decoder, OPUS_GET_OSCE_BWE(&enabled));
+	return enabled != 0;
+}
+
+bool GodotOpusDecoder::has_bandwidth_extension_support() const {
+	if (!decoder) {
+		return false;
+	}
+	opus_int32 enabled = 0;
+	return opus_decoder_ctl(decoder, OPUS_GET_OSCE_BWE(&enabled)) == OPUS_OK;
 }
 
 void GodotOpusDecoder::set_frame_size(int p_frame_size) {
@@ -341,5 +525,13 @@ GodotOpusDecoder::~GodotOpusDecoder() {
 	if (decoder) {
 		opus_decoder_destroy(decoder);
 		decoder = nullptr;
+	}
+	if (dred_decoder) {
+		opus_dred_decoder_destroy(dred_decoder);
+		dred_decoder = nullptr;
+	}
+	if (dred_state) {
+		opus_dred_free(dred_state);
+		dred_state = nullptr;
 	}
 }
