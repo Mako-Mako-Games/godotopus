@@ -14,7 +14,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Downloads and caches the ~130MB Opus DNN weights archive exactly once,
+  # before any of the three dnn=yes build jobs (windows/linux/macos) start.
+  # Without this as its own gating job, all three would start in parallel,
+  # each miss the cache, and each download the archive independently.
+  fetch-dnn-weights:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          submodules: recursive
+
+      - name: Cache Opus DNN weights archive
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: third-party/opus/dnn/opus_data-*.tar.gz
+          key: opus-dnn-weights-${{ hashFiles('third-party/opus/autogen.sh') }}
+
+      - name: Download Opus DNN weights
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_hash=$(grep -oP 'download_model\.sh\s+"\K[0-9a-f]+' third-party/opus/autogen.sh)
+          mkdir -p third-party/opus/dnn
+          archive="third-party/opus/dnn/opus_data-${model_hash}.tar.gz"
+          url="https://media.xiph.org/opus/models/opus_data-${model_hash}.tar.gz"
+          echo "Downloading $url"
+          curl -fL -o "$archive" "$url"
+          echo "${model_hash}  ${archive}" | sha256sum -c --strict -
+
   build:
+    needs: fetch-dnn-weights
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +92,16 @@ jobs:
           key: scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-${{ hashFiles('src/**', 'third-party/opus/**', 'third-party/speexdsp/**', 'SConstruct') }}-v2
           restore-keys: |
             scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-
+
+      # Restores the archive fetch-dnn-weights already downloaded. This is
+      # always a cache hit by the time we get here -- fetch-dnn-weights ran
+      # to completion first (via needs: above) and saved this exact key.
+      - name: Restore Opus DNN weights archive
+        if: matrix.dnn == 'yes'
+        uses: actions/cache@v4
+        with:
+          path: third-party/opus/dnn/opus_data-*.tar.gz
+          key: opus-dnn-weights-${{ hashFiles('third-party/opus/autogen.sh') }}
 
       - name: Build Debug
         run: scons platform=${{ matrix.platform }} target=template_debug dnn=${{ matrix.dnn }}
