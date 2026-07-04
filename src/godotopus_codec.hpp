@@ -140,7 +140,7 @@ public:
 	// Parses p_packet's embedded DRED payload (if any). Returns the number
 	// of samples of history available for decode_dred() (0 if the packet has
 	// none — sender didn't have DRED enabled, or this build lacks DRED support).
-	int parse_dred(const PackedByteArray &p_packet);
+	bool parse_dred(const PackedByteArray &p_packet);
 	// Decodes the frame p_samples_back samples before the packet last passed
 	// to parse_dred(). Must be called after a parse_dred() that returned a
 	// value >= p_samples_back. Returns an empty array if unavailable.

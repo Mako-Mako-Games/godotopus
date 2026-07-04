@@ -151,7 +151,7 @@ func _process(delta: float) -> void:
 		_transmit_tick(delta)
 
 	_time_since_last_packet += delta
-	if _remote_speaking and _time_since_last_packet > config.remote_silence_timeout_sec:
+	if _remote_speaking and _time_since_last_packet > 0.5:
 		_remote_speaking = false
 		stream_ended.emit(_remote_stream_id)
 
@@ -235,7 +235,7 @@ func _transmit_tick(delta: float) -> void:
 
 	var frame_samples := config.get_frame_size() * config.opus_channels
 
-	var max_backlog_samples := frame_samples * max(1, config.jitter_max_buffered_frames)
+	var max_backlog_samples : int = frame_samples * max(1, config.jitter_max_buffered_frames)
 	if _capture_accum.size() > max_backlog_samples:
 		# This process stalled/froze for a while (hitch, breakpoint, loading
 		# spike) and the input device kept capturing the whole time. Encoding
@@ -355,8 +355,6 @@ func _configure_player_stream(node: Node) -> void:
 
 
 func _clear_consumer_buffers() -> void:
-	if not config.auto_configure_players:
-		return
 	for player in players:
 		if not is_instance_valid(player):
 			continue

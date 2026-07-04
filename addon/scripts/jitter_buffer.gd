@@ -128,23 +128,37 @@ func _decode_one_step() -> void:
 	# packet still gets FEC, which is cheaper and always available when the
 	# sender has in-band FEC enabled.
 	var missing := diff
-	var dred_samples_back := decoder.parse_dred(packet["bytes"])
+	var has_dred := decoder.parse_dred(packet["bytes"])
 	var frame_size := decoder.get_frame_size()
 
 	var dred_recovered := 0
 	var plc_recovered := 0
+
+	# Recover all but the final missing frame.
 	for i in range(missing - 1):
 		var frames_before := missing - i
 		var needed_samples := frames_before * frame_size
-		if dred_samples_back >= needed_samples:
-			_decoded_queue.append(decoder.decode_dred(needed_samples))
-			dred_recovered += 1
-		else:
-			_decoded_queue.append(decoder.decode_plc())
-			plc_recovered += 1
+
+		if has_dred:
+			var pcm := decoder.decode_dred(needed_samples)
+			if not pcm.is_empty():
+				_decoded_queue.append(pcm)
+				dred_recovered += 1
+				continue
+
+		_decoded_queue.append(decoder.decode_plc())
+		plc_recovered += 1
+
+	# Recover the frame immediately before the received packet via FEC.
 	_decoded_queue.append(decoder.decode_fec(packet["bytes"]))
+
 	if debug_log:
-		print("[JitterBuffer] gap of %d missing frame(s) before seq %d -- recovered %d via DRED, %d via PLC, 1 via FEC" % [missing, seq, dred_recovered, plc_recovered])
+			print("[JitterBuffer] gap of %d missing frame(s) before seq %d -- recovered %d via DRED, %d via PLC, 1 via FEC" % [
+				missing,
+				seq,
+				dred_recovered,
+				plc_recovered
+			])
 
 	_raw_queue.pop_front()
 	_decoded_queue.append(decoder.decode(packet["bytes"]))

@@ -399,19 +399,18 @@ PackedFloat32Array GodotOpusDecoder::decode_fec(const PackedByteArray &p_next_pa
 	return result;
 }
 
-int GodotOpusDecoder::parse_dred(const PackedByteArray &p_packet) {
+bool GodotOpusDecoder::parse_dred(const PackedByteArray &p_packet) {
 	dred_state_valid = false;
+
 	if (!decoder || p_packet.size() == 0) {
-		return 0;
-	}
-	_ensure_dred_decoder();
-	if (!dred_decoder || !dred_state) {
-		return 0;
+		return false;
 	}
 
-	// Ask for up to 1 second of recoverable history at our own sample rate —
-	// comfortably more than DRED's current ~1s ceiling, so we never clip the
-	// packet's own advertised range.
+	_ensure_dred_decoder();
+	if (!dred_decoder || !dred_state) {
+		return false;
+	}
+
 	int dred_end = 0;
 	int offset = opus_dred_parse(
 		dred_decoder,
@@ -421,29 +420,34 @@ int GodotOpusDecoder::parse_dred(const PackedByteArray &p_packet) {
 		sample_rate,
 		sample_rate,
 		&dred_end,
-		0 // process immediately, don't defer
+		0
 	);
 
 	if (offset <= 0) {
-		return 0;
+		return false;
 	}
+
 	dred_state_valid = true;
-	return offset;
+	return true;
 }
 
 PackedFloat32Array GodotOpusDecoder::decode_dred(int p_samples_back) {
 	PackedFloat32Array result;
+
 	if (!decoder || !dred_state_valid || p_samples_back <= 0) {
 		return result;
 	}
 
 	result.resize(frame_size * channels);
+
 	int samples_decoded = opus_decoder_dred_decode_float(
 		decoder,
 		dred_state,
 		p_samples_back,
 		result.ptrw(),
-		frame_size);
+		frame_size
+	);
+
 
 	if (samples_decoded < 0) {
 		result.clear();

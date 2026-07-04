@@ -1,35 +1,30 @@
 extends Resource
 class_name VoiceConfig
 
-## Central configuration for a VoiceTransmitter.
+## Central configuration for a [VoiceTransmitter].
 ##
 ## Every property validates/clamps on assignment and marks the resource
-## dirty on any actual change. VoiceTransmitter polls is_dirty()
-## once per _process() and reinitializes if true.
+## dirty on any actual change. [VoiceTransmitter] polls [method is_dirty]
+## once per [code]_process()[/code] and reinitializes if true.[br]
 ## If the transmitter has multiplayer authority,
-## it will also rpc the new settings out via to_dict()/apply_dict() so
+## it will also rpc the new settings out via [method to_dict]/[method apply_dict] so
 ## every other peer's matching component reconfigures to match (e.g. you can
 ## drop bitrate at runtime in response to a peer's connection degrading, and
 ## everyone listening to that peer picks it up automatically).
 ##
-## Fields NOT covered here, because they are per-node behavior rather than
-## shared codec/network settings, live directly on VoiceTransmitter instead:
-## `capture_bus_name`, `process_while_paused`, `players`.
+## [b]Fields NOT covered here[/b], because they are per-node behavior rather than
+## shared codec/network settings, live directly on [VoiceTransmitter] instead:
+## [code]capture_bus_name[/code], [code]process_while_paused[/code], [code]players[/code].
 
 signal config_changed
 
 @export_group("Encoding")
 
-## The sample rate Opus encodes at -- i.e. the bandwidth budget for what YOU
-## transmit. This does NOT limit what you can hear from others: decoding
-## always happens at Opus's max (48kHz) regardless of this value, so a peer
-## using a lower value here still gets full-quality playback on your end
-## (see enable_bandwidth_extension). Input audio is resampled to this rate
-## with Speex if necessary.
-## As a rule of thumb, the max audible frequency is half this value, so
-## 24000hz gives a 12khz ceiling, which is fine for voip. 48000hz is the max
-## and gives a 24khz ceiling ("CD quality"), but good luck getting a high
-## enough stable bitrate to make full use of it.
+## The sample rate the input signal is resampled to before encoding.
+## Opus can encode at [code]8000[/code], [code]12000[/code], [code]16000[/code], [code]24000[/code], or [code]48000[/code] Hz.[br]
+## It is recommended to always use [code]48000[/code]. Changing this does [b]not[/b] affect bitrate or reliability in any meaningful way.
+## Opus automatically selects its internal bandwidth class ([[color=red]Narrow Band[/color]|[color=yellow]Wide Band[/color]|[color=green]Full Band[/color]) based on
+## [member opus_bitrate], regardless of this setting. This option exists only for edge cases
 @export_enum("8000:8000", "12000:12000", "16000:16000", "24000:24000", "48000:48000") var opus_sample_rate: int = 48000:
 	set(value):
 		if opus_sample_rate == value:
@@ -37,7 +32,7 @@ signal config_changed
 		opus_sample_rate = value
 		_mark_dirty()
 
-## 1 or 2 channels. 1 is mono, 2 is stereo. Stereo is 2x the bandwidth and almost never used for voice chat anyways.
+## [code]1[/code] or [code]2[/code] channels. [code]1[/code] is mono, [code]2[/code] is stereo. Stereo is 2x the bandwidth and almost never used for voice chat anyways.[br]
 ## (I will not be extensively testing stereo audio, so if it breaks don't hold me accountable!)
 @export_range(1, 2) var opus_channels: int = 1:
 	set(value):
@@ -47,10 +42,18 @@ signal config_changed
 		opus_channels = value
 		_mark_dirty()
 
-## Bitrate in bits per second to encode the audio at. Lower will save bandwidth, but reduce quality.
-## Try and find a good balance for your use case.
-## Remember that some people are still running on single digit Mbps connections!
-@export_range(2000, 128000, 1000) var opus_bitrate: int = 24000:
+## Bitrate in bits per second to encode the audio at. Lower will save bandwidth, but reduce quality.[br]
+## This is the [b]primary control[/b] for audio quality and bandwidth tradeoff. Opus automatically adapts
+## its internal encoding strategy based on this setting:[br]
+## [b]Quality levels (mono speech, 20ms frames):[/b][br]
+## [code]6 Kb/s[/code] = Fair, intelligible (narrow-band)[br]
+## [code]9-10 Kb/s[/code] = Telephone quality (wide-band)[br]
+## [code]12 Kb/s[/code] = Medium bandwidth, better than telephone (super-wideband)[br]
+## [code]16 Kb/s[/code] = Wideband speech quality[br]
+## [code]24 Kb/s[/code] = Near transparent speech[br]
+## [code]32+ Kb/s[/code] = Essentially transparent speech, decent stereo[br]
+## [color=yellow]Note:[/color] There are a lot of variables that affect these numbers, ranges may be inaccurate. The above numbers are just rough averages.
+@export_range(2000, 128000, 1000) var opus_bitrate: int = 12000:
 	set(value):
 		value = clampi(value, 6000, 128000)
 		if opus_bitrate == value:
@@ -58,9 +61,9 @@ signal config_changed
 		opus_bitrate = value
 		_mark_dirty()
 
-## Encoding quality for the Opus encoder.
-## 0-10, where 10 is the most CPU-intensive and highest quality.
-## Since we only have one encode stream per user, this should probably be kept at the max of 10 unless
+## Encoding quality for the Opus encoder.[br]
+## [code]0[/code]-[code]10[/code], where [code]10[/code] is the most CPU-intensive and highest quality.[br]
+## Since we only have one encode stream per user, this should probably be kept at the max of [code]10[/code] unless
 ## you have good reason to lower it.
 @export_range(0, 10) var opus_complexity: int = 10:
 	set(value):
@@ -70,10 +73,10 @@ signal config_changed
 		opus_complexity = value
 		_mark_dirty()
 
-## This roughly equates to the number of RPC calls per second.
-## Lower values send more smaller packets, whereas higher values send fewer larger packets.
+## This roughly equates to the number of RPC calls per second.[br]
+## Lower values send more smaller packets, whereas higher values send fewer larger packets.[br]
 ## Since RPC calls have a non-trivial amount of overhead, lower values will use more bandwidth,
-## but have lower latency and safer packet loss recovery.
+## but have lower latency and safer packet loss recovery.[br]
 ## Think like 1 car crash vs 1 train derailment.
 @export_enum("5:5", "10:10", "20:20", "40:40", "60:60") var opus_frame_duration_ms: int = 20:
 	set(value):
@@ -89,16 +92,16 @@ signal config_changed
 ## Discontinuous Transmission). This replaces what used to be a hand-tuned
 ## amplitude gate here -- Opus's detector is trained on real speech/noise data
 ## and is simply better at this than an RMS threshold could ever be, so there's
-## nothing left here for you to tune.
+## nothing left here for you to tune.[br]
 ##
-## Important: DTX only engages once Opus's internal SILK VAD judges the
+## [color=yellow]Important:[/color] DTX only engages once Opus's internal SILK VAD judges the
 ## signal to be genuinely near-silent for a sustained stretch. A raw,
 ## ungated mic feeding in continuous (even quiet) room/self-noise may never
-## cross that threshold, so encode() keeps producing small "real" packets
+## cross that threshold, so [code]encode()[/code] keeps producing small "real" packets
 ## instead of switching to DTX comfort noise -- that's correct, expected
 ## Opus behavior, not a bug here. If you want DTX to engage more readily,
 ## pair this with an upstream noise gate/suppressor (OS-level, driver-level,
-## or an AudioEffect on your capture bus) rather than expecting Opus to
+## or an [code]AudioEffect[/code] on your capture bus) rather than expecting Opus to
 ## treat a noisy-but-quiet mic signal as silence on its own.
 @export var use_dtx: bool = true:
 	set(value):
@@ -107,8 +110,8 @@ signal config_changed
 		use_dtx = value
 		_mark_dirty()
 
-## Tunes the Opus encoder to add redundancy to each packet to help recover from packet loss.
-## Higher values will increase bandwidth usage, but help keep things smooth on lossy connections like WiFi.
+## Tunes the Opus encoder to add redundancy to each packet to help recover from packet loss.[br]
+## Higher values will increase bandwidth usage, but help keep things smooth on lossy connections like WiFi.[br]
 ## Set to the amount of packets you roughly expect to lose on average.
 @export_range(0, 100) var opus_expected_packet_loss_percent: int = 10:
 	set(value):
@@ -121,8 +124,8 @@ signal config_changed
 ## Deep REDundancy (Opus 1.5+): embeds a compressed history of recent audio in
 ## every packet, so a receiver who's missed several packets in a row can
 ## recover far more of them than plain FEC (which only ever recovers the one
-## previous frame). 0 disables it. Costs some bitrate the higher you go, and
-## only actually does anything if this addon was built with `scons dred=yes`
+## previous frame). [code]0[/code] disables it. Costs some bitrate the higher you go, and
+## only actually does anything if this addon was built with [code]scons dred=yes[/code]
 ## (see README) -- it's a harmless no-op otherwise, so it's safe to leave
 ## nonzero either way.
 @export_range(0, 1000, 10) var dred_duration_ms: int = 0:
@@ -135,8 +138,8 @@ signal config_changed
 
 @export_group("Decoding & Playback Quality")
 
-## Decode-side complexity, separate from opus_complexity (which is encode-side).
-## 0-10. Besides CPU cost, this also gates libopus 1.5+'s DNN-based packet loss
+## Decode-side complexity, separate from [member opus_complexity] (which is encode-side).[br]
+## [code]0[/code]-[code]10[/code]. Besides CPU cost, this also gates libopus 1.5+'s DNN-based packet loss
 ## concealment (needs >=5) and OSCE speech enhancement (needs >=4-7 depending
 ## on feature) when this addon was built with DNN support -- higher here means
 ## meaningfully better-sounding recovery from packet loss and bandwidth
@@ -150,18 +153,20 @@ signal config_changed
 		_mark_dirty()
 
 ## OSCE blind Bandwidth Extension (Opus 1.6+): reconstructs full audio
-## bandwidth from a narrower encoded signal for free (no extra bits sent).
-## Requires this addon to be built with `scons dred=yes` (see README) and
-## opus_decoder_complexity >= 4 -- a harmless no-op otherwise, so it's safe
-## to just leave this on.
+## bandwidth from a narrower encoded signal for free (no extra bits sent).[br]
+
+## [member opus_decoder_complexity] >= [code]4[/code] -- a harmless no-op otherwise, so it's safe
+## to just leave this on.[br]
 ##
-## This only ever helps when the far end's stream is actually running SILK
-## wideband internally (an 8kHz audio passband) -- which Opus tends to pick
-## automatically at typical low/moderate voice bitrates, REGARDLESS of what
-## opus_sample_rate either side is configured with, since decoding always
-## happens at Opus's max (48kHz) on this end. There's no manual precondition
-## for you to configure to make this work; it either applies to a given
-## packet or it doesn't, packet to packet.
+## Bandwidth extension only activates at moderate bitrates where Opus
+## already encodes a reasonable passband (typically 16 Kb/s+). At very low bitrates (below ~12 Kb/s),
+## Opus prioritizes speech intelligibility over bandwidth, so extension may have limited effect.
+## At typical VoIP bitrates (16+ Kb/s), bandwidth extension meaningfully improves the output.[br]
+## [br]
+## Opus chooses its encoding strategy automatically based on [member opus_bitrate], [b]regardless[/b] of what
+## [member opus_sample_rate] either side is configured with. There's no manual precondition for you to
+## configure to make this work; it either applies to a given packet or it doesn't, packet to packet.[br]
+## [color=yellow]Note:[/color] Requires the neural network support build.
 @export var enable_bandwidth_extension: bool = true:
 	set(value):
 		if enable_bandwidth_extension == value:
@@ -182,10 +187,10 @@ signal config_changed
 		fade_in_sec = value
 		_mark_dirty()
 
-## If true, VoiceTransmitter generates and assigns a correctly
-## configured AudioStreamGenerator on every registered player itself (right
-## mix_rate, a sane buffer_length) instead of requiring you to hand-configure
-## each one and keep it in sync whenever the config changes at runtime.
+## If [code]true[/code], [VoiceTransmitter] generates and assigns a correctly
+## configured [AudioStreamGenerator] on every registered player itself (right
+## [code]mix_rate[/code], a sane [code]buffer_length[/code]) instead of requiring you to hand-configure
+## each one and keep it in sync whenever the config changes at runtime.[br]
 ## Not super useful, might remove later idk.
 @export var auto_configure_players: bool = true:
 	set(value):
@@ -196,7 +201,7 @@ signal config_changed
 
 @export_group("Jitter Buffer")
 
-## How many frames of audio the jitter buffer tries to keep in itself in case of network jitter.
+## How many frames of audio the jitter buffer tries to keep in itself in case of network jitter.[br]
 ## Lower values will reduce latency, but increase the chance of audio dropouts.
 @export_range(1, 10) var jitter_target_depth_frames: int = 3:
 	set(value):
@@ -209,7 +214,7 @@ signal config_changed
 ## How many frames of audio the jitter buffer will allow to be buffered before it resyncs to
 ## the most recent arrivals and discards the rest outright. This is the safety valve that keeps
 ## a stall (yours or the sender's) from turning into a growing latency spike once things resume --
-## see JitterBuffer for details.
+## see [JitterBuffer] for details.
 @export_range(2, 30) var jitter_max_buffered_frames: int = 10:
 	set(value):
 		value = clampi(value, 2, 30)
@@ -219,9 +224,9 @@ signal config_changed
 		_mark_dirty()
 
 ## How long (in seconds) to wait without receiving any packet from a remote
-## peer before considering their stream_ended (purely presentational, e.g.
+## peer before considering their stream [code]ended[/code] (purely presentational, e.g.
 ## for a "is talking" UI indicator). Since silence no longer transmits
-## anything at all (see use_dtx), this can't be inferred from the packets
+## anything at all (see [member use_dtx]), this can't be inferred from the packets
 ## themselves and needs a wall-clock timeout instead.
 @export_range(0.1, 3.0, 0.05) var remote_silence_timeout_sec: float = 0.5:
 	set(value):
@@ -237,8 +242,8 @@ signal config_changed
 ## (capture backlog, jitter buffer depth, playback buffer fill) to help
 ## diagnose latency build-up, plus notable one-off events (backlog trims,
 ## sequence resyncs, loss-concealment gaps). Purely a local diagnostic
-## switch, so it is intentionally not synced to other peers via
-## to_dict()/apply_dict().
+## switch, so it is intentionally [b]not[/b] synced to other peers via
+## [method to_dict]/[method apply_dict].
 @export var debug_log_latency: bool = false
 
 var _dirty: bool = false
@@ -255,8 +260,8 @@ func _emit_config_changed() -> void:
 func get_frame_size() -> int:
 	return int(int(opus_sample_rate) * int(opus_frame_duration_ms) / 1000.0)
 
-## Plain-data snapshot for sending over RPC (Resources don't serialize well
-## as RPC arguments — a Dictionary of primitives does).
+## Plain-data snapshot for sending over RPC ([Resource]s don't serialize well
+## as RPC arguments -- a [Dictionary] of primitives does).
 func to_dict() -> Dictionary:
 	return {
 		"opus_sample_rate": opus_sample_rate,
@@ -276,7 +281,7 @@ func to_dict() -> Dictionary:
 		"remote_silence_timeout_sec": remote_silence_timeout_sec,
 	}
 
-## Applies a dict produced by to_dict(). Goes through the normal property
+## Applies a dict produced by [method to_dict]. Goes through the normal property
 ## setters, so values are still validated/clamped and only actually mark the
 ## resource dirty if something really changed.
 func apply_dict(d: Dictionary) -> void:
