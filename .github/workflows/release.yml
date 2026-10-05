@@ -1,9 +1,10 @@
 name: Draft Release
+
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag (e.g. v1.0.0)
+        description: Release tag (e.g. v0.1.0). Must match the version in addons/godotopus/plugin.cfg.
         required: true
 
 permissions:
@@ -14,106 +15,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Downloads and caches the ~130MB Opus DNN weights archive exactly once,
-  # before any of the three dnn=yes build jobs (windows/linux/macos) start.
-  # Without this as its own gating job, all three would start in parallel,
-  # each miss the cache, and each download the archive independently.
-  fetch-dnn-weights:
+  check-version:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
-          submodules: recursive
 
-      - name: Cache Opus DNN weights archive
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: third-party/opus/dnn/opus_data-*.tar.gz
-          key: opus-dnn-weights-${{ hashFiles('third-party/opus/autogen.sh') }}
-
-      - name: Download Opus DNN weights
-        if: steps.cache.outputs.cache-hit != 'true'
-        shell: bash
+      - name: Tag matches plugin.cfg version
         run: |
-          set -euo pipefail
-          model_hash=$(grep -oP 'download_model\.sh\s+"\K[0-9a-f]+' third-party/opus/autogen.sh)
-          mkdir -p third-party/opus/dnn
-          archive="third-party/opus/dnn/opus_data-${model_hash}.tar.gz"
-          url="https://media.xiph.org/opus/models/opus_data-${model_hash}.tar.gz"
-          echo "Downloading $url"
-          curl -fL -o "$archive" "$url"
-          echo "${model_hash}  ${archive}" | sha256sum -c --strict -
+          version=$(sed -n 's/^version="\(.*\)"/\1/p' addons/godotopus/plugin.cfg)
+          if [ "v$version" != "${{ inputs.tag }}" ]; then
+            echo "::error::Tag ${{ inputs.tag }} does not match plugin.cfg version $version"
+            exit 1
+          fi
 
   build:
-    needs: fetch-dnn-weights
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-            dnn: "no"
-          - os: windows-latest
-            platform: windows
-            dnn: "yes"
-          - os: ubuntu-latest
-            platform: linux
-            dnn: "no"
-          - os: ubuntu-latest
-            platform: linux
-            dnn: "yes"
-          - os: macos-latest
-            platform: macos
-            dnn: "no"
-          - os: macos-latest
-            platform: macos
-            dnn: "yes"
-    runs-on: ${{ matrix.os }}
-    env:
-      SCONS_CACHE: ${{ github.workspace }}/.scons_cache
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-          submodules: recursive
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - run: pip install scons
-
-      - name: Cache SCons build
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.SCONS_CACHE }}
-          key: scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-${{ hashFiles('src/**', 'third-party/opus/**', 'third-party/speexdsp/**', 'SConstruct') }}-v2
-          restore-keys: |
-            scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-
-
-      # Restores the archive fetch-dnn-weights already downloaded. This is
-      # always a cache hit by the time we get here -- fetch-dnn-weights ran
-      # to completion first (via needs: above) and saved this exact key.
-      - name: Restore Opus DNN weights archive
-        if: matrix.dnn == 'yes'
-        uses: actions/cache@v4
-        with:
-          path: third-party/opus/dnn/opus_data-*.tar.gz
-          key: opus-dnn-weights-${{ hashFiles('third-party/opus/autogen.sh') }}
-
-      - name: Build Debug
-        run: scons platform=${{ matrix.platform }} target=template_debug dnn=${{ matrix.dnn }}
-
-      - name: Build Release
-        run: scons platform=${{ matrix.platform }} target=template_release dnn=${{ matrix.dnn }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.platform }}-dnn${{ matrix.dnn }}-bin
-          path: build/addons/godotopus/bin
-          if-no-files-found: error
+    needs: check-version
+    uses: ./.github/workflows/_build.yml
+    with:
+      ref: ${{ inputs.tag }}
+      targets: template_debug template_release
 
   package:
     needs: build
@@ -127,42 +49,27 @@ jobs:
         with:
           path: artifacts
 
-      - name: Assemble no-dnn addon
-        shell: bash
+      - name: Assemble addon zips
         run: |
           set -euo pipefail
-          mkdir -p package-no-dnn/addons
-          cp -r addon package-no-dnn/addons/godotopus
-          mkdir -p package-no-dnn/addons/godotopus/bin
-          for dir in artifacts/*-dnnno-bin/; do
-            artifact_name=$(basename "$dir")
-            cp -r "$dir"/* package-no-dnn/addons/godotopus/bin/
-            echo "Copied $artifact_name binaries"
-          done
-          echo "Final no-dnn bin contents:"
-          ls -la package-no-dnn/addons/godotopus/bin
+          assemble() {
+            local flavor=$1 zip=$2
+            local root="package-$flavor"
+            mkdir -p "$root/addons"
+            cp -r addons/godotopus "$root/addons/godotopus"
+            mkdir -p "$root/addons/godotopus/bin"
+            for dir in artifacts/bin-*-dnn-$flavor/; do
+              cp -r "$dir"/* "$root/addons/godotopus/bin/"
+            done
+            # Import libraries and debug symbols are build by-products, not runtime files.
+            find "$root/addons/godotopus/bin" \( -name '*.a' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' \) -delete
+            ls -la "$root/addons/godotopus/bin"
+            (cd "$root" && zip -qr "../$zip" addons)
+          }
+          assemble yes "godotopus-${{ inputs.tag }}.zip"
+          assemble no "godotopus-${{ inputs.tag }}-no-dnn.zip"
 
-      - name: Assemble dnn addon
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p package-dnn/addons
-          cp -r addon package-dnn/addons/godotopus
-          mkdir -p package-dnn/addons/godotopus/bin
-          for dir in artifacts/*-dnnyes-bin/; do
-            artifact_name=$(basename "$dir")
-            cp -r "$dir"/* package-dnn/addons/godotopus/bin/
-            echo "Copied $artifact_name binaries"
-          done
-          echo "Final dnn bin contents:"
-          ls -la package-dnn/addons/godotopus/bin
-
-      - name: Create ZIPs
-        run: |
-          (cd package-no-dnn && zip -r ../godotopus-${{ inputs.tag }}-no-dnn.zip addons)
-          (cd package-dnn && zip -r ../godotopus-${{ inputs.tag }}.zip addons)
-
-      - name: Create Draft Release
+      - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}

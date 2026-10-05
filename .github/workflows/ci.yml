@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "clang-format==19.1.7" "gdtoolkit==4.*"
+
+      - name: clang-format
+        run: clang-format --dry-run --Werror $(git ls-files 'src/*.cpp' 'src/*.hpp' 'tests/native/*.cpp')
+
+      - name: gdformat
+        run: gdformat --check $(git ls-files '*.gd' ':!:tests/godot/addons/**')
+
+  build:
+    uses: ./.github/workflows/_build.yml

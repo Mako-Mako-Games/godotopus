@@ -1,0 +1,161 @@
+# Reusable build: fetches the Opus DNN weights once, builds every platform in
+# both flavors (dnn=no / dnn=yes), then checks each build loads in Godot.
+# Called by ci.yml and release.yml so releases ship exactly what CI tested.
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to the triggering ref).
+        type: string
+        default: ""
+      targets:
+        description: Space-separated Godot build targets.
+        type: string
+        default: template_debug
+
+env:
+  # Lowest supported Godot version; smoke tests run against it.
+  GODOT_VERSION: 4.5-stable
+  GODOTOPUS_DNN_CACHE: build/cache/opus_dnn
+
+jobs:
+  fetch-dnn-weights:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - name: Compute cache key
+        id: key
+        run: echo "key=opus-dnn-weights-${{ hashFiles('third-party/opus/autogen.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Opus DNN weights archive
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GODOTOPUS_DNN_CACHE }}
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Download Opus DNN weights
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          model_hash=$(grep -oP 'download_model\.sh\s+"\K[0-9a-f]+' third-party/opus/autogen.sh)
+          mkdir -p "$GODOTOPUS_DNN_CACHE"
+          archive="$GODOTOPUS_DNN_CACHE/opus_data-${model_hash}.tar.gz"
+          curl -fL --retry 3 -o "$archive" "https://media.xiph.org/opus/models/opus_data-${model_hash}.tar.gz"
+          echo "${model_hash}  ${archive}" | sha256sum -c --strict -
+
+  build:
+    needs: fetch-dnn-weights
+    name: build (${{ matrix.platform }}, dnn=${{ matrix.dnn }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # To add a platform: one entry per flavor here, plus one [libraries]
+        # line in addons/godotopus/godotopus.gdextension.
+        include:
+          - { os: windows-latest, platform: windows, dnn: "no" }
+          - { os: windows-latest, platform: windows, dnn: "yes" }
+          # Oldest supported Ubuntu runner, so binaries load on older glibc.
+          - { os: ubuntu-22.04, platform: linux, dnn: "no" }
+          - { os: ubuntu-22.04, platform: linux, dnn: "yes" }
+          - { os: macos-latest, platform: macos, dnn: "no" }
+          - { os: macos-latest, platform: macos, dnn: "yes" }
+    runs-on: ${{ matrix.os }}
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons_cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons==4.9.1
+
+      - name: Cache SCons objects
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCONS_CACHE }}
+          key: scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-${{ github.sha }}
+          restore-keys: scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-
+
+      - name: Restore Opus DNN weights archive
+        if: matrix.dnn == 'yes'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.GODOTOPUS_DNN_CACHE }}
+          key: ${{ needs.fetch-dnn-weights.outputs.cache-key }}
+          fail-on-cache-miss: true
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in ${{ inputs.targets }}; do
+            scons -j4 platform=${{ matrix.platform }} target=$target dnn=${{ matrix.dnn }}
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.platform }}-dnn-${{ matrix.dnn }}
+          path: addons/godotopus/bin
+          if-no-files-found: error
+
+  smoke-test:
+    needs: build
+    name: smoke test (${{ matrix.platform }}, dnn=${{ matrix.dnn }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows, dnn: "no", godot: "win64.exe.zip", exe: "Godot_v${GODOT_VERSION}_win64_console.exe" }
+          - { os: windows-latest, platform: windows, dnn: "yes", godot: "win64.exe.zip", exe: "Godot_v${GODOT_VERSION}_win64_console.exe" }
+          - { os: ubuntu-22.04, platform: linux, dnn: "no", godot: "linux.x86_64.zip", exe: "Godot_v${GODOT_VERSION}_linux.x86_64" }
+          - { os: ubuntu-22.04, platform: linux, dnn: "yes", godot: "linux.x86_64.zip", exe: "Godot_v${GODOT_VERSION}_linux.x86_64" }
+          - { os: macos-latest, platform: macos, dnn: "no", godot: "macos.universal.zip", exe: "Godot.app/Contents/MacOS/Godot" }
+          - { os: macos-latest, platform: macos, dnn: "yes", godot: "macos.universal.zip", exe: "Godot.app/Contents/MacOS/Godot" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.platform }}-dnn-${{ matrix.dnn }}
+          path: addons/godotopus/bin
+
+      - name: Download Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_${{ matrix.godot }}"
+          unzip -q godot.zip -d godot-bin
+          echo "GODOT=$GITHUB_WORKSPACE/godot-bin/${{ matrix.exe }}" >> "$GITHUB_ENV"
+
+      - name: Install addon into test project
+        shell: bash
+        run: |
+          mkdir -p tests/godot/addons
+          cp -r addons/godotopus tests/godot/addons/
+
+      - name: Load extension and run smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x "$GODOT" || true
+          # The first run imports the project and registers the extension.
+          "$GODOT" --headless --path tests/godot --import || true
+          "$GODOT" --headless --path tests/godot --script res://smoke_test.gd

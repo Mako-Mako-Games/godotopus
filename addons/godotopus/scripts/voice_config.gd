@@ -25,7 +25,8 @@ signal config_changed
 ## It is recommended to always use [code]48000[/code]. Changing this does [b]not[/b] affect bitrate or reliability in any meaningful way.
 ## Opus automatically selects its internal bandwidth class ([[color=red]Narrow Band[/color]|[color=yellow]Wide Band[/color]|[color=green]Full Band[/color]) based on
 ## [member opus_bitrate], regardless of this setting. This option exists only for edge cases
-@export_enum("8000:8000", "12000:12000", "16000:16000", "24000:24000", "48000:48000") var opus_sample_rate: int = 48000:
+@export_enum("8000:8000", "12000:12000", "16000:16000", "24000:24000", "48000:48000")
+var opus_sample_rate: int = 48000:
 	set(value):
 		if opus_sample_rate == value:
 			return
@@ -248,17 +249,21 @@ signal config_changed
 
 var _dirty: bool = false
 
+
 func _mark_dirty() -> void:
 	_dirty = true
 	call_deferred("_emit_config_changed")
+
 
 func _emit_config_changed() -> void:
 	_dirty = false
 	config_changed.emit()
 
+
 ## Samples-per-channel for one opus frame at the current encode settings.
 func get_frame_size() -> int:
 	return int(int(opus_sample_rate) * int(opus_frame_duration_ms) / 1000.0)
+
 
 ## Plain-data snapshot for sending over RPC ([Resource]s don't serialize well
 ## as RPC arguments -- a [Dictionary] of primitives does).
@@ -280,6 +285,7 @@ func to_dict() -> Dictionary:
 		"jitter_max_buffered_frames": jitter_max_buffered_frames,
 		"remote_silence_timeout_sec": remote_silence_timeout_sec,
 	}
+
 
 ## Applies a dict produced by [method to_dict]. Goes through the normal property
 ## setters, so values are still validated/clamped and only actually mark the

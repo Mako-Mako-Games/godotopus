@@ -6,7 +6,7 @@ using namespace godot;
 
 void GodotOpusResampler::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("initialize", "from_rate", "to_rate", "channels", "quality"),
-		&GodotOpusResampler::initialize, DEFVAL(1), DEFVAL(5));
+			&GodotOpusResampler::initialize, DEFVAL(1), DEFVAL(5));
 	ClassDB::bind_method(D_METHOD("resample", "input"), &GodotOpusResampler::resample);
 	ClassDB::bind_method(D_METHOD("destroy"), &GodotOpusResampler::destroy);
 	ClassDB::bind_method(D_METHOD("get_from_rate"), &GodotOpusResampler::get_from_rate);
@@ -25,7 +25,7 @@ void GodotOpusResampler::initialize(int p_from_rate, int p_to_rate, int p_channe
 	resampler = speex_resampler_init(channels, from_rate, to_rate, p_quality, &err);
 	if (err != RESAMPLER_ERR_SUCCESS) {
 		UtilityFunctions::printerr("GodotOpusResampler: failed to initialize: ",
-			speex_resampler_strerror(err));
+				speex_resampler_strerror(err));
 		resampler = nullptr;
 	}
 }
@@ -45,15 +45,15 @@ PackedFloat32Array GodotOpusResampler::resample(const PackedFloat32Array &p_inpu
 	spx_uint32_t out_produced = out_len;
 
 	int err = speex_resampler_process_interleaved_float(
-		resampler,
-		p_input.ptr(),
-		&in_consumed,
-		result.ptrw(),
-		&out_produced);
+			resampler,
+			p_input.ptr(),
+			&in_consumed,
+			result.ptrw(),
+			&out_produced);
 
 	if (err != RESAMPLER_ERR_SUCCESS) {
 		UtilityFunctions::printerr("GodotOpusResampler: resample failed: ",
-			speex_resampler_strerror(err));
+				speex_resampler_strerror(err));
 		result.clear();
 		return result;
 	}

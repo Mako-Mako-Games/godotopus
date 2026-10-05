@@ -1,4 +1,4 @@
-﻿#include "godotopus_codec.hpp"
+#include "godotopus_codec.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -18,8 +18,8 @@ int compute_frame_size(int p_sample_rate, int p_frame_duration_ms) {
 			return p_sample_rate * p_frame_duration_ms / 1000;
 		default:
 			UtilityFunctions::printerr(
-				"GodotOpusCodec: frame_duration_ms must be one of 5, 10, 20, 40, 60 (got ",
-				p_frame_duration_ms, "), falling back to 20ms.");
+					"GodotOpusCodec: frame_duration_ms must be one of 5, 10, 20, 40, 60 (got ",
+					p_frame_duration_ms, "), falling back to 20ms.");
 			return p_sample_rate * 20 / 1000;
 	}
 }
@@ -33,7 +33,7 @@ constexpr int DRED_FRAME_MS = 10;
 
 void GodotOpusEncoder::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("initialize", "sample_rate", "channels", "frame_duration_ms"),
-		&GodotOpusEncoder::initialize, DEFVAL(20));
+			&GodotOpusEncoder::initialize, DEFVAL(20));
 	ClassDB::bind_method(D_METHOD("encode", "pcm"), &GodotOpusEncoder::encode);
 
 	ClassDB::bind_method(D_METHOD("set_bitrate", "bitrate"), &GodotOpusEncoder::set_bitrate);
@@ -96,8 +96,8 @@ PackedByteArray GodotOpusEncoder::encode(const PackedFloat32Array &p_pcm) {
 	}
 	if (p_pcm.size() != frame_size * channels) {
 		UtilityFunctions::printerr(
-			"GodotOpusEncoder: expected ", frame_size * channels,
-			" samples, got ", p_pcm.size());
+				"GodotOpusEncoder: expected ", frame_size * channels,
+				" samples, got ", p_pcm.size());
 		return result;
 	}
 
@@ -105,11 +105,11 @@ PackedByteArray GodotOpusEncoder::encode(const PackedFloat32Array &p_pcm) {
 	result.resize(max_packet);
 
 	int bytes_written = opus_encode_float(
-		encoder,
-		p_pcm.ptr(),
-		frame_size,
-		result.ptrw(),
-		max_packet);
+			encoder,
+			p_pcm.ptr(),
+			frame_size,
+			result.ptrw(),
+			max_packet);
 
 	if (bytes_written < 0) {
 		UtilityFunctions::printerr("GodotOpusEncoder: encode failed: ", opus_strerror(bytes_written));
@@ -249,7 +249,7 @@ GodotOpusEncoder::~GodotOpusEncoder() {
 
 void GodotOpusDecoder::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("initialize", "sample_rate", "channels", "frame_duration_ms"),
-		&GodotOpusDecoder::initialize, DEFVAL(20));
+			&GodotOpusDecoder::initialize, DEFVAL(20));
 	ClassDB::bind_method(D_METHOD("decode", "packet"), &GodotOpusDecoder::decode);
 	ClassDB::bind_method(D_METHOD("decode_plc"), &GodotOpusDecoder::decode_plc);
 	ClassDB::bind_method(D_METHOD("decode_fec", "next_packet"), &GodotOpusDecoder::decode_fec);
@@ -329,12 +329,12 @@ PackedFloat32Array GodotOpusDecoder::decode(const PackedByteArray &p_packet) {
 	const unsigned char *data_ptr = p_packet.size() > 0 ? p_packet.ptr() : nullptr;
 
 	int samples_decoded = opus_decode_float(
-		decoder,
-		data_ptr,
-		p_packet.size(),
-		result.ptrw(),
-		frame_size,
-		0 // this is a normal decode of a packet that arrived, not an FEC request
+			decoder,
+			data_ptr,
+			p_packet.size(),
+			result.ptrw(),
+			frame_size,
+			0 // this is a normal decode of a packet that arrived, not an FEC request
 	);
 
 	if (samples_decoded < 0) {
@@ -381,12 +381,12 @@ PackedFloat32Array GodotOpusDecoder::decode_fec(const PackedByteArray &p_next_pa
 	result.resize(frame_size * channels);
 
 	int samples_decoded = opus_decode_float(
-		decoder,
-		p_next_packet.ptr(),
-		p_next_packet.size(),
-		result.ptrw(),
-		frame_size,
-		1 // decode_fec=1: recover the PREVIOUS frame from this packet's redundancy
+			decoder,
+			p_next_packet.ptr(),
+			p_next_packet.size(),
+			result.ptrw(),
+			frame_size,
+			1 // decode_fec=1: recover the PREVIOUS frame from this packet's redundancy
 	);
 
 	if (samples_decoded < 0) {
@@ -413,15 +413,14 @@ bool GodotOpusDecoder::parse_dred(const PackedByteArray &p_packet) {
 
 	int dred_end = 0;
 	int offset = opus_dred_parse(
-		dred_decoder,
-		dred_state,
-		p_packet.ptr(),
-		p_packet.size(),
-		sample_rate,
-		sample_rate,
-		&dred_end,
-		0
-	);
+			dred_decoder,
+			dred_state,
+			p_packet.ptr(),
+			p_packet.size(),
+			sample_rate,
+			sample_rate,
+			&dred_end,
+			0);
 
 	if (offset <= 0) {
 		return false;
@@ -441,13 +440,11 @@ PackedFloat32Array GodotOpusDecoder::decode_dred(int p_samples_back) {
 	result.resize(frame_size * channels);
 
 	int samples_decoded = opus_decoder_dred_decode_float(
-		decoder,
-		dred_state,
-		p_samples_back,
-		result.ptrw(),
-		frame_size
-	);
-
+			decoder,
+			dred_state,
+			p_samples_back,
+			result.ptrw(),
+			frame_size);
 
 	if (samples_decoded < 0) {
 		result.clear();

@@ -54,7 +54,7 @@ Godotopus supports two methods of capturing microphone input:
   you can apply bus effects (e.g. a noise gate) to it before encoding.
 
 > [!WARNING]
-> The Capture Bus path has a tricky Godot engine issue where it may build up multiply seconds of latency in a way Direct AudioServer Input does not
+> The Capture Bus path has a tricky Godot engine issue where it may build up multiple seconds of latency in a way Direct AudioServer Input does not
 > exhibit at all. This isn't something I know of a way to work around, and is the reason 
 > Direct AudioServer Input exists.
 > Only use Capture Bus if you specifically need bus effects on the mic
@@ -97,28 +97,36 @@ or
 git clone --recursive git@github.com:Mako-Mako-Games/godotopus.git
 ```
 
-Build from the repository root:
+Build from the repository root (requires Python 3 and `pip install scons`):
 
 ```bash
-scons
+scons                      # builds into addons/godotopus/bin/
+scons install              # also copies the addon into tests/godot and demo
 ```
 
-Copy `build/addons/godotopus/` into your project's `addons/` folder.
+Then copy `addons/godotopus/` into your project's `addons/` folder.
 
-> You may need to build `third-party/godot-cpp` first:
->
-> ```bash
-> cd third-party/godot-cpp
-> scons
-> ```
+Godotopus requires Godot 4.5 or newer. godot-cpp is pinned to its `4.5` branch.
 
 ### Optional: DNN-based features
 
-libopus's deep-learning features need a set of pretrained-weight source files that aren't checked into the
-`opus` submodule by default. They largely increase the size of the compiled library, so a version with and without is available. To build with them, use the `dnn=yes` flag:
+libopus's deep-learning features need a set of pretrained-weight source files that aren't in the
+`opus` repository. They greatly increase the size of the compiled library, so releases come in a version with them and a version without. To build with them, use the `dnn=yes` flag:
 
 ```bash
 scons dnn=yes
+```
+
+The ~130MB weights archive is downloaded once into `build/cache/opus_dnn/` (override with the
+`GODOTOPUS_DNN_CACHE` environment variable), verified against the hash pinned by the opus submodule, and
+extracted under `build/gen/`. The submodules are never modified.
+
+### Tests
+
+```bash
+scons install
+godot --headless --path tests/godot --import
+godot --headless --path tests/godot --script res://smoke_test.gd
 ```
 
 ---
