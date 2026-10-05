@@ -1,9 +1,5 @@
 #pragma once
 
-// Reconstructed from godotopus_resampler.cpp (no .hpp was provided). Public
-// API (initialize, resample, destroy, get_from_rate, get_to_rate) is
-// unchanged from your original — get_channels() is the only addition.
-
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 

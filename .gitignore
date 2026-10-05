@@ -1,4 +1,25 @@
-﻿.sconsign.dblite
-# No idea what these are
-src/*.obj
-build
+# Build outputs (all generated files live under build/)
+build/
+addons/godotopus/bin/
+.sconsign*.dblite
+__pycache__/
+*.o
+*.os
+*.obj
+*.lib
+*.exp
+*.pdb
+
+# Godot
+.godot/
+*.import
+
+# Addon copies installed into the repo's Godot projects by `scons install`
+tests/godot/addons/godotopus/
+demo/addons/godotopus/
+
+# IDEs
+.idea/
+.vscode/
+.vs/
+*.code-workspace

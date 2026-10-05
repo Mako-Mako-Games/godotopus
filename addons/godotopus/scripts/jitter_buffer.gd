@@ -1,32 +1,40 @@
 extends RefCounted
 class_name JitterBuffer
 
-
 var decoder: GodotOpusDecoder
 var target_depth_frames: int = 3
 var max_buffered_frames: int = 10
 var debug_log: bool = false
 
 var _expected_seq: int = -1
-var _raw_queue: Array[Dictionary] = [] # {seq: int, bytes: PackedByteArray}
+var _raw_queue: Array[Dictionary] = []  # {seq: int, bytes: PackedByteArray}
 var _decoded_queue: Array[PackedFloat32Array] = []
 var _primed: bool = false
 
 const SEQ_MODULO := 65536
 
-func configure(p_decoder: GodotOpusDecoder, p_target_depth_frames: int, p_max_buffered_frames: int, p_debug_log: bool = false) -> void:
+
+func configure(
+	p_decoder: GodotOpusDecoder,
+	p_target_depth_frames: int,
+	p_max_buffered_frames: int,
+	p_debug_log: bool = false
+) -> void:
 	decoder = p_decoder
 	target_depth_frames = max(1, p_target_depth_frames)
 	max_buffered_frames = max(target_depth_frames + 1, p_max_buffered_frames)
 	debug_log = p_debug_log
 
+
 ## Number of received-but-not-yet-decoded packets currently buffered.
 func get_raw_queue_size() -> int:
 	return _raw_queue.size()
 
+
 ## Number of decoded-but-not-yet-pulled PCM frames currently buffered.
 func get_decoded_queue_size() -> int:
 	return _decoded_queue.size()
+
 
 ## Call after a config hot-reload, or any time the decoder itself was
 ## recreated. Drops anything in flight and resets the decoder's internal
@@ -46,8 +54,10 @@ func reset() -> void:
 	if decoder:
 		decoder.reset()
 
+
 func insert(opus_bytes: PackedByteArray, sequence: int) -> void:
 	_raw_queue.append({"seq": sequence, "bytes": opus_bytes})
+
 
 ## Call once per process tick. Decodes as many packets as the catch-up policy
 ## allows this tick and appends the resulting PCM to the decoded queue.
@@ -57,11 +67,16 @@ func process_tick() -> void:
 
 	if not _primed:
 		if _raw_queue.size() < target_depth_frames:
-			return # still warming up — absorb arrival jitter before playing anything
+			return  # still warming up — absorb arrival jitter before playing anything
 		_primed = true
 		_expected_seq = _raw_queue[0]["seq"]
 		if debug_log:
-			print("[JitterBuffer] primed with %d frames buffered, starting at seq %d" % [_raw_queue.size(), _expected_seq])
+			print(
+				(
+					"[JitterBuffer] primed with %d frames buffered, starting at seq %d"
+					% [_raw_queue.size(), _expected_seq]
+				)
+			)
 
 	if _raw_queue.size() > max_buffered_frames:
 		# Backlog is badly out of control (this process, or the sender, stalled
@@ -76,7 +91,17 @@ func process_tick() -> void:
 		_raw_queue = _raw_queue.slice(keep_from)
 		_expected_seq = _raw_queue[0]["seq"]
 		if debug_log:
-			print("[JitterBuffer] backlog overflow: had %d frames buffered (max %d) -- dropped %d stale frames, resynced to seq %d" % [pre_trim_size, max_buffered_frames, pre_trim_size - _raw_queue.size(), _expected_seq])
+			print(
+				(
+					"[JitterBuffer] backlog overflow: had %d frames buffered (max %d) -- dropped %d stale frames, resynced to seq %d"
+					% [
+						pre_trim_size,
+						max_buffered_frames,
+						pre_trim_size - _raw_queue.size(),
+						_expected_seq
+					]
+				)
+			)
 
 	# Catch-up policy: decode an extra packet this tick if backlog is above
 	# target, instead of ever dropping audio outright. Bounded latency without
@@ -86,6 +111,7 @@ func process_tick() -> void:
 		if _raw_queue.is_empty():
 			break
 		_decode_one_step()
+
 
 func _decode_one_step() -> void:
 	var packet: Dictionary = _raw_queue[0]
@@ -114,7 +140,12 @@ func _decode_one_step() -> void:
 	var resync_gap_threshold := max_buffered_frames * 4
 	if diff > resync_gap_threshold:
 		if debug_log:
-			print("[JitterBuffer] sequence resync: gap of %d frames (expected %d, got %d) -- treating as reconnect" % [diff, _expected_seq, seq])
+			print(
+				(
+					"[JitterBuffer] sequence resync: gap of %d frames (expected %d, got %d) -- treating as reconnect"
+					% [diff, _expected_seq, seq]
+				)
+			)
 		_raw_queue.pop_front()
 		_decoded_queue.append(decoder.decode(packet["bytes"]))
 		_expected_seq = _wrap(seq + 1)
@@ -153,19 +184,21 @@ func _decode_one_step() -> void:
 	_decoded_queue.append(decoder.decode_fec(packet["bytes"]))
 
 	if debug_log:
-			print("[JitterBuffer] gap of %d missing frame(s) before seq %d -- recovered %d via DRED, %d via PLC, 1 via FEC" % [
-				missing,
-				seq,
-				dred_recovered,
-				plc_recovered
-			])
+		print(
+			(
+				"[JitterBuffer] gap of %d missing frame(s) before seq %d -- recovered %d via DRED, %d via PLC, 1 via FEC"
+				% [missing, seq, dred_recovered, plc_recovered]
+			)
+		)
 
 	_raw_queue.pop_front()
 	_decoded_queue.append(decoder.decode(packet["bytes"]))
 	_expected_seq = _wrap(seq + 1)
 
+
 func has_ready_frames() -> bool:
 	return not _decoded_queue.is_empty()
+
 
 ## Pulls and clears all currently decoded frames. Caller is expected to push
 ## these straight into one or more AudioStreamGeneratorPlayback instances.
@@ -174,8 +207,10 @@ func pull_ready_frames() -> Array[PackedFloat32Array]:
 	_decoded_queue.clear()
 	return out
 
+
 func _wrap(v: int) -> int:
 	return ((v % SEQ_MODULO) + SEQ_MODULO) % SEQ_MODULO
+
 
 ## Signed circular distance from `from_seq` to `to_seq`, in (-MODULO/2, MODULO/2].
 ## Positive means `to_seq` is ahead of `from_seq` (a gap of that many frames);

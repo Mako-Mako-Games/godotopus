@@ -9,7 +9,6 @@ signal stream_ended(stream_id: int)
 signal local_amplitude_changed(amplitude: float)
 signal remote_amplitude_changed(amplitude: float)
 
-
 ## If false, disables all capture and transmission, and ignores incoming streams.
 ## Mostly useful for debugging, consider muting audio players instead for actual gameplay.
 @export var enabled: bool = true
@@ -42,7 +41,12 @@ signal remote_amplitude_changed(amplitude: float)
 			return
 		capture_bus_name = value
 		if not Engine.is_editor_hint() and capture_bus_name != "":
-			push_warning("VoiceTransmitter: capture_bus_name is set to '%s'. Routing capture through an audio bus has a confirmed Godot engine issue where latency can build up across engine hitches/pauses. Leave capture_bus_name empty (direct AudioServer capture) unless you specifically need bus effects on the mic signal." % capture_bus_name)
+			push_warning(
+				(
+					"VoiceTransmitter: capture_bus_name is set to '%s'. Routing capture through an audio bus has a confirmed Godot engine issue where latency can build up across engine hitches/pauses. Leave capture_bus_name empty (direct AudioServer capture) unless you specifically need bus effects on the mic signal."
+					% capture_bus_name
+				)
+			)
 
 ## Keeps this node's own _process() (and therefore the entire capture,
 ## transmit, receive, and decode pipeline) running even while the SceneTree
@@ -60,13 +64,17 @@ signal remote_amplitude_changed(amplitude: float)
 		process_while_paused = value
 		process_mode = PROCESS_MODE_ALWAYS if value else PROCESS_MODE_PAUSABLE
 
-
 @export var players: Array[Node]:
 	set(value):
 		players = value
 		for player in players.duplicate():
 			if not _is_valid_audio_player(player):
-				push_warning("VoiceTransmitter: player '%s' is not a usable audio player (needs a `stream` property and get_stream_playback())" % player.name)
+				push_warning(
+					(
+						"VoiceTransmitter: player '%s' is not a usable audio player (needs a `stream` property and get_stream_playback())"
+						% player.name
+					)
+				)
 				players.erase(player)
 			else:
 				_setup_player(player)
@@ -74,8 +82,7 @@ signal remote_amplitude_changed(amplitude: float)
 var _encoder: GodotOpusEncoder
 var _decoder: GodotOpusDecoder
 var _jitter_buffer: JitterBuffer
-var _capture_resampler: GodotOpusResampler # only created if mic rate != opus rate
-
+var _capture_resampler: GodotOpusResampler  # only created if mic rate != opus rate
 
 var _output_resamplers: Dictionary = {}
 
@@ -89,7 +96,7 @@ var _capture_accum: PackedFloat32Array = PackedFloat32Array()
 # and no separate "stream boundary" concept needed at the protocol level.
 var _send_sequence: int = 0
 var _local_speaking: bool = false
-var _local_stream_id: int = 0 # local-only, just for a unique stream_started id
+var _local_stream_id: int = 0  # local-only, just for a unique stream_started id
 
 var _remote_speaking: bool = false
 var _remote_stream_id: int = 0
@@ -115,7 +122,8 @@ const SEQ_MODULO := 65536
 # this: it is strictly better to always decode at full quality.
 const DECODE_SAMPLE_RATE := 48000
 
-const _rpc_channel : int = 3
+const _rpc_channel: int = 3
+
 
 func _ready() -> void:
 	process_mode = PROCESS_MODE_ALWAYS if process_while_paused else PROCESS_MODE_PAUSABLE
@@ -127,14 +135,17 @@ func _ready() -> void:
 	if not is_multiplayer_authority():
 		_request_initial_config_sync()
 
+
 func _request_initial_config_sync() -> void:
 	if multiplayer.has_multiplayer_peer():
 		_request_config_sync.rpc_id(get_multiplayer_authority())
 	else:
 		multiplayer.connected_to_server.connect(_on_connected_for_initial_sync, CONNECT_ONE_SHOT)
 
+
 func _on_connected_for_initial_sync() -> void:
 	_request_config_sync.rpc_id(get_multiplayer_authority())
+
 
 @rpc("any_peer", "call_local", "reliable", _rpc_channel)
 func _request_config_sync() -> void:
@@ -142,18 +153,24 @@ func _request_config_sync() -> void:
 		return
 	_receive_config_update.rpc_id(multiplayer.get_remote_sender_id(), config.to_dict())
 
+
 func _process(delta: float) -> void:
 	if not enabled:
 		return
 
 	if config.debug_log_latency and delta > 0.1:
-		print("[VoiceTransmitter] large frame delta: %.0fms (paused, stalled, or a real engine hitch) -- process_while_paused=%s, tree_paused=%s" % [delta * 1000.0, process_while_paused, get_tree().paused])
+		print(
+			(
+				"[VoiceTransmitter] large frame delta: %.0fms (paused, stalled, or a real engine hitch) -- process_while_paused=%s, tree_paused=%s"
+				% [delta * 1000.0, process_while_paused, get_tree().paused]
+			)
+		)
 
 	if is_multiplayer_authority():
 		_transmit_tick(delta)
 
 	_time_since_last_packet += delta
-	if _remote_speaking and _time_since_last_packet > 0.5:
+	if _remote_speaking and _time_since_last_packet > config.remote_silence_timeout_sec:
 		_remote_speaking = false
 		stream_ended.emit(_remote_stream_id)
 
@@ -169,6 +186,7 @@ func _process(delta: float) -> void:
 		if _debug_log_accum_sec >= DEBUG_LOG_INTERVAL_SEC:
 			_debug_log_accum_sec = 0.0
 			_print_latency_snapshot()
+
 
 func _reinitialize() -> void:
 	_local_speaking = false
@@ -194,7 +212,12 @@ func _reinitialize() -> void:
 	_decoder.set_bandwidth_extension(config.enable_bandwidth_extension)
 
 	_jitter_buffer = JitterBuffer.new()
-	_jitter_buffer.configure(_decoder, config.jitter_target_depth_frames, config.jitter_max_buffered_frames, config.debug_log_latency)
+	_jitter_buffer.configure(
+		_decoder,
+		config.jitter_target_depth_frames,
+		config.jitter_max_buffered_frames,
+		config.debug_log_latency
+	)
 
 	_output_resamplers.clear()
 
@@ -211,14 +234,17 @@ func _reinitialize() -> void:
 	if is_multiplayer_authority() and multiplayer.has_multiplayer_peer():
 		_receive_config_update.rpc(config.to_dict())
 
+
 @rpc("authority", "call_remote", "reliable", _rpc_channel)
 func _receive_config_update(data: Dictionary) -> void:
 	config.apply_dict(data)
 
+
 # ── Transmit side ──────────────────────────────────────────────────────────
 
+
 func _transmit_tick(delta: float) -> void:
-	var available : int = _get_input_frames_available()
+	var available: int = _get_input_frames_available()
 	if available <= 0:
 		return
 
@@ -226,10 +252,15 @@ func _transmit_tick(delta: float) -> void:
 		var mix_rate := AudioServer.get_mix_rate()
 		var normal_batch := int(mix_rate * delta) + 1
 		if available > normal_batch * 3:
-			print("[VoiceTransmitter] large capture read this tick: %d frames (~%.0fms) -- input device/OS may be buffering audio" % [available, float(available) / mix_rate * 1000.0])
+			print(
+				(
+					"[VoiceTransmitter] large capture read this tick: %d frames (~%.0fms) -- input device/OS may be buffering audio"
+					% [available, float(available) / mix_rate * 1000.0]
+				)
+			)
 
 	var stereo: PackedVector2Array = _get_input_frames(available)
-	var pcm : PackedFloat32Array = _stereo_to_pcm(stereo)
+	var pcm: PackedFloat32Array = _stereo_to_pcm(stereo)
 
 	if _capture_resampler:
 		pcm = _capture_resampler.resample(pcm)
@@ -237,7 +268,7 @@ func _transmit_tick(delta: float) -> void:
 
 	var frame_samples := config.get_frame_size() * config.opus_channels
 
-	var max_backlog_samples : int = frame_samples * max(1, config.jitter_max_buffered_frames)
+	var max_backlog_samples: int = frame_samples * max(1, config.jitter_max_buffered_frames)
 	if _capture_accum.size() > max_backlog_samples:
 		# This process stalled/froze for a while (hitch, breakpoint, loading
 		# spike) and the input device kept capturing the whole time. Encoding
@@ -246,8 +277,18 @@ func _transmit_tick(delta: float) -> void:
 		# exact latency spike the receive side now guards against. Drop the
 		# stale portion and only catch up from the most recent audio.
 		if config.debug_log_latency:
-			var dropped_ms := float(_capture_accum.size() - frame_samples) / float(config.opus_channels) / float(config.opus_sample_rate) * 1000.0
-			print("[VoiceTransmitter] capture backlog overflow: dropping ~%.0fms of stale captured audio" % dropped_ms)
+			var dropped_ms := (
+				float(_capture_accum.size() - frame_samples)
+				/ float(config.opus_channels)
+				/ float(config.opus_sample_rate)
+				* 1000.0
+			)
+			print(
+				(
+					"[VoiceTransmitter] capture backlog overflow: dropping ~%.0fms of stale captured audio"
+					% dropped_ms
+				)
+			)
 		_capture_accum = _capture_accum.slice(_capture_accum.size() - frame_samples)
 
 	var frames_this_tick := 0
@@ -258,7 +299,13 @@ func _transmit_tick(delta: float) -> void:
 		frames_this_tick += 1
 
 	if config.debug_log_latency and frames_this_tick > 1:
-		print("[VoiceTransmitter] encoded %d frames in a single tick -- capture is running behind real time" % frames_this_tick)
+		print(
+			(
+				"[VoiceTransmitter] encoded %d frames in a single tick -- capture is running behind real time"
+				% frames_this_tick
+			)
+		)
+
 
 func _process_capture_frame(frame: PackedFloat32Array, delta: float) -> void:
 	# Always hand the frame to Opus. With DTX enabled, its own RNN-based voice
@@ -271,7 +318,12 @@ func _process_capture_frame(frame: PackedFloat32Array, delta: float) -> void:
 
 	var speaking := opus_bytes.size() > 0 and not _encoder.is_in_dtx()
 	if config.debug_log_latency and speaking != _local_speaking:
-		print("[VoiceTransmitter] speaking=%s, opus_bytes=%d, dtx=%s" % [speaking, opus_bytes.size(), _encoder.is_in_dtx()])
+		print(
+			(
+				"[VoiceTransmitter] speaking=%s, opus_bytes=%d, dtx=%s"
+				% [speaking, opus_bytes.size(), _encoder.is_in_dtx()]
+			)
+		)
 	if speaking and not _local_speaking:
 		_local_stream_id = _wrap(_local_stream_id + 1)
 		stream_started.emit(_local_stream_id)
@@ -279,7 +331,9 @@ func _process_capture_frame(frame: PackedFloat32Array, delta: float) -> void:
 		stream_ended.emit(_local_stream_id)
 	_local_speaking = speaking
 
-	if opus_bytes.size() > 0:
+	# Opus marks DTX frames by returning 2 bytes or less; those never need to
+	# be transmitted (see opus_encode in opus.h).
+	if opus_bytes.size() > 2:
 		_receive_voice_packet.rpc(opus_bytes, _send_sequence)
 		_send_sequence = _wrap(_send_sequence + 1)
 
@@ -294,6 +348,7 @@ func _receive_voice_packet(opus_bytes: PackedByteArray, sequence: int) -> void:
 		_on_remote_activity_resumed()
 	_jitter_buffer.insert(opus_bytes, sequence)
 
+
 ## Called the moment packets start arriving again after a silence gap (real
 ## or just the other end not talking). Doesn't touch the jitter buffer/decoder
 ## state at all — see jitter_buffer.gd's reset() comment for why that's no
@@ -303,6 +358,7 @@ func _on_remote_activity_resumed() -> void:
 	_clear_consumer_buffers()
 	_fade_in_total_samples = max(1, int(DECODE_SAMPLE_RATE * config.fade_in_sec))
 	_fade_in_samples_remaining = _fade_in_total_samples
+
 
 func _apply_fade_in(pcm: PackedFloat32Array) -> PackedFloat32Array:
 	if _fade_in_samples_remaining <= 0 or pcm.is_empty():
@@ -319,14 +375,22 @@ func _apply_fade_in(pcm: PackedFloat32Array) -> PackedFloat32Array:
 		_fade_in_samples_remaining -= 1
 	return out
 
+
 # ── Consumers ──────────────────────────────────────────────────────────────
+
 
 func register_player(node: Node, key: String = "") -> void:
 	if not _is_valid_audio_player(node):
-		push_error("VoiceTransmitter: '%s' is not a usable audio player (needs a `stream` property and get_stream_playback())" % node.name)
+		push_error(
+			(
+				"VoiceTransmitter: '%s' is not a usable audio player (needs a `stream` property and get_stream_playback())"
+				% node.name
+			)
+		)
 		return
 	players.append(node)
 	_setup_player(node)
+
 
 ## Accepts a player and removes it from the `players` array.
 func unregister_player(player) -> void:
@@ -334,8 +398,10 @@ func unregister_player(player) -> void:
 		_output_resamplers.erase(player.get_instance_id())
 	players.erase(player)
 
+
 func _setup_player(node: Node) -> void:
 	_configure_player_stream(node)
+
 
 func _configure_player_stream(node: Node) -> void:
 	if not config.auto_configure_players:
@@ -345,11 +411,13 @@ func _configure_player_stream(node: Node) -> void:
 	if current_gen and is_equal_approx(current_gen.mix_rate, desired_rate):
 		return
 
-	var was_playing : bool = node.has_method("is_playing") and node.is_playing()
+	var was_playing: bool = node.has_method("is_playing") and node.is_playing()
 
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = desired_rate
-	gen.buffer_length = maxf(0.1, (config.jitter_max_buffered_frames * config.opus_frame_duration_ms / 1000.0) * 2.0)
+	gen.buffer_length = maxf(
+		0.1, (config.jitter_max_buffered_frames * config.opus_frame_duration_ms / 1000.0) * 2.0
+	)
 	node.stream = gen
 
 	if was_playing:
@@ -363,6 +431,7 @@ func _clear_consumer_buffers() -> void:
 		var playback: AudioStreamGeneratorPlayback = player.get_stream_playback()
 		if playback and not playback.is_playing():
 			playback.clear_buffer()
+
 
 func _distribute_to_consumers(pcm: PackedFloat32Array) -> void:
 	if pcm.is_empty() or players.is_empty():
@@ -388,6 +457,7 @@ func _distribute_to_consumers(pcm: PackedFloat32Array) -> void:
 			to_push = stereo.slice(0, space)
 		playback.push_buffer(to_push)
 
+
 func _resample_for_player(node: Node, pcm: PackedFloat32Array) -> PackedFloat32Array:
 	if config.auto_configure_players:
 		return pcm
@@ -406,10 +476,18 @@ func _resample_for_player(node: Node, pcm: PackedFloat32Array) -> PackedFloat32A
 		_output_resamplers[id] = resampler
 	return resampler.resample(pcm)
 
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+
 func _is_valid_audio_player(node: Node) -> bool:
-	return is_instance_valid(node) and ("stream" in node) and node.has_method("get_stream_playback") and node.has_method("play")
+	return (
+		is_instance_valid(node)
+		and ("stream" in node)
+		and node.has_method("get_stream_playback")
+		and node.has_method("play")
+	)
+
 
 func _stereo_to_pcm(stereo: PackedVector2Array) -> PackedFloat32Array:
 	var pcm := PackedFloat32Array()
@@ -424,8 +502,9 @@ func _stereo_to_pcm(stereo: PackedVector2Array) -> PackedFloat32Array:
 			pcm[i * 2 + 1] = stereo[i].y
 	return pcm
 
+
 func _pcm_to_stereo(pcm: PackedFloat32Array) -> PackedVector2Array:
-	var frame_count : int = pcm.size() / config.opus_channels
+	var frame_count: int = pcm.size() / config.opus_channels
 	var stereo := PackedVector2Array()
 	stereo.resize(frame_count)
 	if config.opus_channels == 1:
@@ -436,14 +515,17 @@ func _pcm_to_stereo(pcm: PackedFloat32Array) -> PackedVector2Array:
 			stereo[i] = Vector2(pcm[i * 2], pcm[i * 2 + 1])
 	return stereo
 
+
 func _flatten(frames: Array[PackedFloat32Array]) -> PackedFloat32Array:
 	var out := PackedFloat32Array()
 	for f in frames:
 		out.append_array(f)
 	return out
 
+
 func _wrap(v: int) -> int:
 	return ((v % SEQ_MODULO) + SEQ_MODULO) % SEQ_MODULO
+
 
 ## Cheap loudness meter for UI (mic level bars, "who's talking" glow, etc).
 ## This is NOT a speech/silence decision — that's entirely Opus's job now
@@ -456,6 +538,7 @@ func _rms(pcm: PackedFloat32Array) -> float:
 		sum_sq += sample * sample
 	return sqrt(sum_sq / pcm.size())
 
+
 ## Diagnostic only (VoiceConfig.debug_log_latency). Breaks down how much
 ## audio is currently sitting at each stage of the pipeline, in milliseconds,
 ## so a latency build-up can be traced to its actual source instead of
@@ -465,7 +548,12 @@ func _rms(pcm: PackedFloat32Array) -> float:
 func _print_latency_snapshot() -> void:
 	var capture_ms := 0.0
 	if config.opus_channels > 0 and config.opus_sample_rate > 0:
-		capture_ms = float(_capture_accum.size()) / float(config.opus_channels) / float(config.opus_sample_rate) * 1000.0
+		capture_ms = (
+			float(_capture_accum.size())
+			/ float(config.opus_channels)
+			/ float(config.opus_sample_rate)
+			* 1000.0
+		)
 
 	var frame_ms := float(config.opus_frame_duration_ms)
 	var raw_ms := _jitter_buffer.get_raw_queue_size() * frame_ms
@@ -484,7 +572,13 @@ func _print_latency_snapshot() -> void:
 		var used_ms := float(used_frames) / gen.mix_rate * 1000.0
 		playback_summary += " %s=%.0fms" % [player.name, used_ms]
 
-	print("[VoiceTransmitter] latency capture=%.0fms jitter_raw=%.0fms jitter_decoded=%.0fms playback:%s last_packet=%.2fs" % [capture_ms, raw_ms, decoded_ms, playback_summary, _time_since_last_packet])
+	print(
+		(
+			"[VoiceTransmitter] latency capture=%.0fms jitter_raw=%.0fms jitter_decoded=%.0fms playback:%s last_packet=%.2fs"
+			% [capture_ms, raw_ms, decoded_ms, playback_summary, _time_since_last_packet]
+		)
+	)
+
 
 func _get_audio_effect_capture() -> AudioEffectCapture:
 	if capture_bus_name == "":
@@ -503,8 +597,14 @@ func _get_audio_effect_capture() -> AudioEffectCapture:
 				_capture_effect = fx
 				break
 		if not _capture_effect:
-			push_error("VoiceTransmitter: capture_bus_name '%s' has no AudioEffectCapture" % capture_bus_name)
+			push_error(
+				(
+					"VoiceTransmitter: capture_bus_name '%s' has no AudioEffectCapture"
+					% capture_bus_name
+				)
+			)
 	return _capture_effect
+
 
 func _get_input_frames_available() -> int:
 	if capture_bus_name != "":
@@ -513,6 +613,7 @@ func _get_input_frames_available() -> int:
 	else:
 		return AudioServer.get_input_frames_available()
 
+
 func _get_input_frames(count: int) -> PackedVector2Array:
 	if capture_bus_name != "":
 		var capture := _get_audio_effect_capture()
@@ -520,10 +621,13 @@ func _get_input_frames(count: int) -> PackedVector2Array:
 	else:
 		return AudioServer.get_input_frames(count)
 
+
 # ── Public introspection ───────────────────────────────────────────────────
+
 
 func is_locally_speaking() -> bool:
 	return is_multiplayer_authority() and _local_speaking
+
 
 ## Purely a local, presentational counter (see class comment) — no longer a
 ## network-synchronized stream ID, just something that changes every time a

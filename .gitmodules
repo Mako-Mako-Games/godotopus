@@ -1,9 +1,10 @@
-[submodule "godot-cpp"]
+[submodule "third-party/godot-cpp"]
 	path = third-party/godot-cpp
-	url = git@github.com:godotengine/godot-cpp.git
-[submodule "opus"]
+	url = https://github.com/godotengine/godot-cpp.git
+	branch = 4.5
+[submodule "third-party/opus"]
 	path = third-party/opus
-	url = git@github.com:xiph/opus.git
+	url = https://github.com/xiph/opus.git
 [submodule "third-party/speexdsp"]
 	path = third-party/speexdsp
-	url = git@github.com:xiph/speexdsp.git
+	url = https://github.com/xiph/speexdsp.git

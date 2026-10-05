@@ -1,0 +1,13 @@
+; Test project for Godotopus. `scons install` copies the built addon into
+; addons/godotopus here.
+
+config_version=5
+
+[application]
+
+config/name="Godotopus Tests"
+config/features=PackedStringArray("4.5")
+
+[audio]
+
+driver/driver="Dummy"

@@ -1,6 +1,6 @@
 [configuration]
 entry_symbol = "godotopus_init"
-compatibility_minimum = "4.2"
+compatibility_minimum = "4.5"
 
 [libraries]
 windows.debug.x86_64 = "bin/libgodotopus.windows.template_debug.x86_64.dll"
