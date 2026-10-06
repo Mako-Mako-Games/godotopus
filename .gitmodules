@@ -8,3 +8,6 @@
 [submodule "third-party/speexdsp"]
 	path = third-party/speexdsp
 	url = https://github.com/xiph/speexdsp.git
+[submodule "third-party/doctest"]
+	path = third-party/doctest
+	url = https://github.com/doctest/doctest.git

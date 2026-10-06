@@ -3,6 +3,7 @@ build/
 addons/godotopus/bin/
 .sconsign*.dblite
 __pycache__/
+compile_commands.json
 *.o
 *.os
 *.obj
@@ -23,3 +24,7 @@ demo/addons/godotopus/
 .vscode/
 .vs/
 *.code-workspace
+
+# Test framework, installed by tools/fetch_gdunit4.py
+tests/godot/addons/gdUnit4/
+tests/godot/reports/

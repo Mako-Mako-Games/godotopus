@@ -159,7 +159,8 @@ func _decode_one_step() -> void:
 	# packet still gets FEC, which is cheaper and always available when the
 	# sender has in-band FEC enabled.
 	var missing := diff
-	var has_dred := decoder.parse_dred(packet["bytes"])
+	# Samples of history the packet carries (0 without DRED).
+	var dred_available := decoder.parse_dred(packet["bytes"])
 	var frame_size := decoder.get_frame_size()
 
 	var dred_recovered := 0
@@ -170,7 +171,7 @@ func _decode_one_step() -> void:
 		var frames_before := missing - i
 		var needed_samples := frames_before * frame_size
 
-		if has_dred:
+		if needed_samples <= dred_available:
 			var pcm := decoder.decode_dred(needed_samples)
 			if not pcm.is_empty():
 				_decoded_queue.append(pcm)
