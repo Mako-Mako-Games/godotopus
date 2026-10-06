@@ -123,11 +123,22 @@ extracted under `build/gen/`. The submodules are never modified.
 
 ### Tests
 
-```bash
-scons install
-godot --headless --path tests/godot --import
-godot --headless --path tests/godot --script res://smoke_test.gd
-```
+There are two suites, and CI runs both for every platform and flavor:
+
+* **Native** (`tests/native`): doctest unit tests for the C++ core in `src/core`. They run without Godot.
+
+  ```bash
+  scons tests                 # add dnn=yes to cover the DNN features
+  scons tests sanitize=yes    # with AddressSanitizer + UBSan (GCC/Clang)
+  ```
+
+* **Godot** (`tests/godot`): gdUnit4 tests that run in headless Godot against the built addon.
+
+  ```bash
+  scons install
+  python tools/fetch_gdunit4.py                       # once; installs the pinned gdUnit4
+  python tools/run_godot_tests.py --godot /path/to/godot
+  ```
 
 ---
 

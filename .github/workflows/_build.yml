@@ -1,6 +1,7 @@
 # Reusable build: fetches the Opus DNN weights once, builds every platform in
-# both flavors (dnn=no / dnn=yes), then checks each build loads in Godot.
-# Called by ci.yml and release.yml so releases ship exactly what CI tested.
+# both flavors (dnn=no / dnn=yes) and runs the native tests, then runs the
+# gdUnit4 suite in Godot against each build. Called by ci.yml and release.yml
+# so releases ship exactly what CI tested.
 name: Build
 
 on:
@@ -16,7 +17,7 @@ on:
         default: template_debug
 
 env:
-  # Lowest supported Godot version; smoke tests run against it.
+  # Lowest supported Godot version; the Godot tests run against it.
   GODOT_VERSION: 4.5-stable
   GODOTOPUS_DNN_CACHE: build/cache/opus_dnn
 
@@ -26,7 +27,7 @@ jobs:
     outputs:
       cache-key: ${{ steps.key.outputs.key }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           submodules: recursive
@@ -35,12 +36,15 @@ jobs:
         id: key
         run: echo "key=opus-dnn-weights-${{ hashFiles('third-party/opus/autogen.sh') }}" >> "$GITHUB_OUTPUT"
 
+      # Saved from Linux but restored on every OS; cache entries are OS-specific
+      # unless enableCrossOsArchive is set on both the save and the restores.
       - name: Cache Opus DNN weights archive
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.GODOTOPUS_DNN_CACHE }}
           key: ${{ steps.key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Download Opus DNN weights
         if: steps.cache.outputs.cache-hit != 'true'
@@ -58,8 +62,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # To add a platform: one entry per flavor here, plus one [libraries]
-        # line in addons/godotopus/godotopus.gdextension.
+        # To add a platform: one entry per flavor here and in godot-tests,
+        # plus one [libraries] line in addons/godotopus/godotopus.gdextension.
         include:
           - { os: windows-latest, platform: windows, dnn: "no" }
           - { os: windows-latest, platform: windows, dnn: "yes" }
@@ -72,19 +76,19 @@ jobs:
     env:
       SCONS_CACHE: ${{ github.workspace }}/.scons_cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           submodules: recursive
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - run: pip install scons==4.9.1
 
       - name: Cache SCons objects
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.SCONS_CACHE }}
           key: scons-${{ matrix.platform }}-dnn${{ matrix.dnn }}-${{ github.sha }}
@@ -92,10 +96,11 @@ jobs:
 
       - name: Restore Opus DNN weights archive
         if: matrix.dnn == 'yes'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.GODOTOPUS_DNN_CACHE }}
           key: ${{ needs.fetch-dnn-weights.outputs.cache-key }}
+          enableCrossOsArchive: true
           fail-on-cache-miss: true
 
       - name: Build
@@ -106,15 +111,52 @@ jobs:
             scons -j4 platform=${{ matrix.platform }} target=$target dnn=${{ matrix.dnn }}
           done
 
-      - uses: actions/upload-artifact@v4
+      - name: Native tests
+        run: scons -j4 platform=${{ matrix.platform }} target=template_debug dnn=${{ matrix.dnn }} tests
+
+      - uses: actions/upload-artifact@v7
         with:
           name: bin-${{ matrix.platform }}-dnn-${{ matrix.dnn }}
           path: addons/godotopus/bin
           if-no-files-found: error
 
-  smoke-test:
+  # Native tests again under AddressSanitizer + UBSan. Linux only: it's the
+  # one platform with first-class sanitizer support in GCC.
+  sanitizers:
+    needs: fetch-dnn-weights
+    name: sanitizers (linux, dnn=${{ matrix.dnn }})
+    strategy:
+      fail-fast: false
+      matrix:
+        dnn: ["no", "yes"]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons==4.9.1
+
+      - name: Restore Opus DNN weights archive
+        if: matrix.dnn == 'yes'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.GODOTOPUS_DNN_CACHE }}
+          key: ${{ needs.fetch-dnn-weights.outputs.cache-key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+
+      - name: Native tests with sanitizers
+        run: scons -j4 platform=linux target=template_debug dnn=${{ matrix.dnn }} sanitize=yes tests
+
+  godot-tests:
     needs: build
-    name: smoke test (${{ matrix.platform }}, dnn=${{ matrix.dnn }})
+    name: godot tests (${{ matrix.platform }}, dnn=${{ matrix.dnn }})
     strategy:
       fail-fast: false
       matrix:
@@ -127,11 +169,15 @@ jobs:
           - { os: macos-latest, platform: macos, dnn: "yes", godot: "macos.universal.zip", exe: "Godot.app/Contents/MacOS/Godot" }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v8
         with:
           name: bin-${{ matrix.platform }}-dnn-${{ matrix.dnn }}
           path: addons/godotopus/bin
@@ -143,19 +189,23 @@ jobs:
           curl -fL --retry 3 -o godot.zip \
             "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_${{ matrix.godot }}"
           unzip -q godot.zip -d godot-bin
-          echo "GODOT=$GITHUB_WORKSPACE/godot-bin/${{ matrix.exe }}" >> "$GITHUB_ENV"
+          godot="$GITHUB_WORKSPACE/godot-bin/${{ matrix.exe }}"
+          chmod +x "$godot" || true
+          echo "GODOT_BIN=$godot" >> "$GITHUB_ENV"
 
-      - name: Install addon into test project
+      - name: Install addon and gdUnit4 into the test project
         shell: bash
         run: |
           mkdir -p tests/godot/addons
           cp -r addons/godotopus tests/godot/addons/
+          python tools/fetch_gdunit4.py
 
-      - name: Load extension and run smoke test
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x "$GODOT" || true
-          # The first run imports the project and registers the extension.
-          "$GODOT" --headless --path tests/godot --import || true
-          "$GODOT" --headless --path tests/godot --script res://smoke_test.gd
+      - name: Run Godot tests
+        run: python tools/run_godot_tests.py
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: godot-test-report-${{ matrix.platform }}-dnn-${{ matrix.dnn }}
+          path: tests/godot/reports
