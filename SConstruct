@@ -5,8 +5,9 @@
 #   scons                      light build (no DNN features)
 #   scons dnn=yes              heavy build: DRED, deep PLC, OSCE/BWE
 #   scons install              also copy the addon into tests/godot and demo
-#   scons tests                build and run the native C++ test suite
-#   scons tests sanitize=yes   same, with AddressSanitizer + UBSan (GCC/Clang)
+#   scons tests                      build and run the native C++ test suite
+#   scons tests sanitize=address     same, with AddressSanitizer + UBSan (GCC/Clang)
+#   scons tests sanitize=thread      same, with ThreadSanitizer (GCC/Clang)
 #
 # All generated files go under build/; submodules are never modified.
 
@@ -57,7 +58,7 @@ library = env.SharedLibrary(
 
 install.build(env, library)
 
-tests = native_tests.build(env, core_sources, opus_objs + speex_objs, opus_includes + speex_includes, _flag("sanitize"))
+tests = native_tests.build(env, core_sources, opus_objs + speex_objs, opus_includes + speex_includes, ARGUMENTS.get("sanitize", "no"))
 env.Depends(tests, speex_config)
 
 Default(library)

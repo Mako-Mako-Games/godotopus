@@ -2,6 +2,8 @@
 
 #include "frame.hpp"
 
+#include <algorithm>
+
 namespace godotopus {
 
 int inspect_packet(const uint8_t *p_data, size_t p_size, int p_sample_rate, PacketInfo &r_info) {
@@ -147,15 +149,15 @@ bool Decoder::ensure_dred() {
 	return true;
 }
 
-int Decoder::parse_dred(const uint8_t *p_data, size_t p_size) {
+int Decoder::parse_dred(const uint8_t *p_data, size_t p_size, int p_max_samples) {
 	dred_samples = 0;
 	if (!decoder || !p_data || p_size == 0 || !ensure_dred()) {
 		return 0;
 	}
 
+	const int max_samples = p_max_samples > 0 ? std::min(p_max_samples, sample_rate) : sample_rate;
 	int dred_end = 0;
-	// Look back at most one second.
-	const int result = opus_dred_parse(dred_decoder, dred, p_data, static_cast<opus_int32>(p_size), sample_rate, sample_rate, &dred_end, 0);
+	const int result = opus_dred_parse(dred_decoder, dred, p_data, static_cast<opus_int32>(p_size), max_samples, sample_rate, &dred_end, 0);
 	dred_samples = result > 0 ? result : 0;
 	return dred_samples;
 }
