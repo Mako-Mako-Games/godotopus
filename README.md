@@ -128,8 +128,9 @@ There are two suites, and CI runs both for every platform and flavor:
 * **Native** (`tests/native`): doctest unit tests for the C++ core in `src/core`. They run without Godot.
 
   ```bash
-  scons tests                 # add dnn=yes to cover the DNN features
-  scons tests sanitize=yes    # with AddressSanitizer + UBSan (GCC/Clang)
+  scons tests                     # add dnn=yes to cover the DNN features
+  scons tests sanitize=address    # with AddressSanitizer + UBSan (GCC/Clang)
+  scons tests sanitize=thread     # with ThreadSanitizer (GCC/Clang)
   ```
 
 * **Godot** (`tests/godot`): gdUnit4 tests that run in headless Godot against the built addon.

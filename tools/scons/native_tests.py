@@ -3,14 +3,21 @@
 The suite links the core sources directly against the same Opus/Speex
 objects as the extension, but without godot-cpp, so it runs without Godot.
 
-    scons tests                 build and run
-    scons tests sanitize=yes    with AddressSanitizer + UBSan (GCC/Clang)
+    scons tests                     build and run
+    scons tests sanitize=address    with AddressSanitizer + UBSan (GCC/Clang)
+    scons tests sanitize=thread     with ThreadSanitizer (GCC/Clang)
 """
 
 import glob
 import os
 
 OUT_DIR = "build/native_tests"
+
+SANITIZERS = {
+    "no": [],
+    "address": ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"],
+    "thread": ["-fsanitize=thread"],
+}
 
 
 def _run(target, source, env):
@@ -32,13 +39,19 @@ def build(env, core_sources, dependency_objects, include_dirs, sanitize):
     test_env["CPPDEFINES"] = [d for d in test_env["CPPDEFINES"] if not (isinstance(d, (tuple, list)) and d[0] == "_HAS_EXCEPTIONS")]
     if test_env.get("is_msvc", False):
         test_env.AppendUnique(CXXFLAGS=["/EHsc"])
+    if test_env["platform"] != "windows":
+        test_env.Append(LINKFLAGS=["-pthread"])  # std::thread in the stress tests
 
-    variant = "sanitize" if sanitize else "plain"
-    if sanitize:
+    if sanitize not in SANITIZERS:
+        raise ValueError("sanitize must be one of: %s" % ", ".join(SANITIZERS))
+    variant = sanitize
+    if sanitize != "no":
         if test_env.get("is_msvc", False):
-            raise ValueError("sanitize=yes requires GCC or Clang")
-        flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize-recover=all"]
+            raise ValueError("sanitize=%s requires GCC or Clang" % sanitize)
+        flags = SANITIZERS[sanitize] + ["-fno-omit-frame-pointer"]
         test_env.Append(CCFLAGS=flags, LINKFLAGS=flags)
+        # Timing checks are meaningless under instrumentation.
+        test_env.Append(CPPDEFINES=["GODOTOPUS_SANITIZED"])
         # Static runtimes (MinGW) don't mix with the sanitizer runtimes.
         test_env["LINKFLAGS"] = [f for f in test_env["LINKFLAGS"] if not str(f).startswith("-static")]
 

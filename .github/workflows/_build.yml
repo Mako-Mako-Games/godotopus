@@ -120,15 +120,18 @@ jobs:
           path: addons/godotopus/bin
           if-no-files-found: error
 
-  # Native tests again under AddressSanitizer + UBSan. Linux only: it's the
-  # one platform with first-class sanitizer support in GCC.
+  # Native tests again under AddressSanitizer + UBSan and under
+  # ThreadSanitizer (the receive path decodes on the audio thread while
+  # packets arrive on another). Linux only: it's the one platform with
+  # first-class sanitizer support in GCC.
   sanitizers:
     needs: fetch-dnn-weights
-    name: sanitizers (linux, dnn=${{ matrix.dnn }})
+    name: sanitizers (linux, ${{ matrix.sanitize }}, dnn=${{ matrix.dnn }})
     strategy:
       fail-fast: false
       matrix:
         dnn: ["no", "yes"]
+        sanitize: [address, thread]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -151,8 +154,14 @@ jobs:
           enableCrossOsArchive: true
           fail-on-cache-miss: true
 
+      # TSan's shadow memory doesn't fit the runner kernel's default mmap
+      # randomization ("unexpected memory mapping").
+      - name: Reduce ASLR entropy for ThreadSanitizer
+        if: matrix.sanitize == 'thread'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
       - name: Native tests with sanitizers
-        run: scons -j4 platform=linux target=template_debug dnn=${{ matrix.dnn }} sanitize=yes tests
+        run: scons -j4 platform=linux target=template_debug dnn=${{ matrix.dnn }} sanitize=${{ matrix.sanitize }} tests
 
   godot-tests:
     needs: build

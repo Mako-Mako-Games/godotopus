@@ -48,8 +48,10 @@ public:
 
 	// Parses the DRED payload of p_data. Returns how many samples of history
 	// before the packet can be recovered with decode_dred(), or 0 if the
-	// packet has none or this build lacks DRED support.
-	int parse_dred(const uint8_t *p_data, size_t p_size);
+	// packet has none or this build lacks DRED support. Parsing runs a
+	// neural decoder over the history, so p_max_samples should be no more
+	// than the gap needs; <= 0 means one second.
+	int parse_dred(const uint8_t *p_data, size_t p_size, int p_max_samples = 0);
 	// Decodes p_frame_samples starting p_offset_samples before the packet last
 	// given to parse_dred(). p_offset_samples must be <= its return value.
 	int decode_dred(int p_offset_samples, int p_frame_samples, std::vector<float> &r_pcm);
