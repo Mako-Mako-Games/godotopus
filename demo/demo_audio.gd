@@ -20,12 +20,3 @@ static func radio_bus() -> StringName:
 		crunch.drive = 0.4
 		AudioServer.add_bus_effect(bus, crunch)
 	return RADIO_BUS
-
-
-## One line per stat, for a monospace label.
-static func format_stats(stats: Dictionary) -> String:
-	var lines := PackedStringArray()
-	for key in stats:
-		var value = stats[key]
-		lines.append("%-18s %s" % [key, ("%.1f" % value) if value is float else str(value)])
-	return "\n".join(lines)
