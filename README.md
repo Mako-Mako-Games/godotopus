@@ -10,15 +10,14 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 
 ## Features
 
-* Opus encoding
-* Plug-and-play. (as much as possible, anyway)
-* Voice activity detection via Opus's DTX for reduced bandwidth usage when no one is talking
+* Opus encoding, decoded on the audio thread through a custom `AudioStream`
+* Plug-and-play `VoicePeer` node for Godot's high-level multiplayer
+* Transport-agnostic: send packets over anything by extending `VoiceTransport`
+* Silence isn't transmitted (Opus DTX)
 * FEC (forward error correction) for recovering short burst packet loss
-* Opus Bandwidth Extension for recreating high frequencies on medium bitrate settings
 * Deep Redundancy (DRED) for recovering much longer packet loss bursts
 * Network jitter compensation
-* Config synchronization between peers
-* Easy configuration
+* Senders and receivers need no shared settings: every packet describes its own format
 * Output to multiple audio players (great for radios or clever effects!)
 * Supports all `AudioStreamPlayer` node types
 * Buildable without DNN-based features for much smaller compiled sizes
@@ -27,9 +26,6 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 ## Future Improvements
 
 * Microphone pre-processing effects (noise suppression, AGC, etc.)
-* Better networking solution than base RPC
-* Port all scripts to C++ (maybe...)
-* Code quality improvements (there's a lot of spaghetti in here)
 * Squeeze as much latency out of the system as possible
 * Clearer name???
 
@@ -41,45 +37,64 @@ A simple and usable GDExtension addon that provides VOIP for Godot 4 using Opus 
 1. Download the latest release for your platform. Releases include both the DNN-enabled and non-DNN binaries side by side.
 2. Extract it into your project's `addons/` folder.
 3. Enable the plugin in **Project Settings → Plugins**.
+4. Enable **Audio → Driver → Enable Input** in the project settings so Godot can record the microphone.
 
 ---
 
 ## Usage
 
-Godotopus supports two methods of capturing microphone input:
+### With Godot's multiplayer: `VoicePeer`
 
-* **Direct AudioServer Input** (default, recommended) - Pulls mic input
-  straight from the `AudioServer`, bypassing Godot's audio bus entirely.
-* **Capture Bus** - Routes the microphone through a Godot audio bus first, so
-  you can apply bus effects (e.g. a noise gate) to it before encoding.
+Add a `VoicePeer` to each player's scene, and add one or more audio players to its **Players**
+array. On the peer with multiplayer authority over it, it sends that peer's microphone; on every
+other peer it plays that voice through the players.
 
-> [!WARNING]
-> The Capture Bus path has a tricky Godot engine issue where it may build up multiple seconds of latency in a way Direct AudioServer Input does not
-> exhibit at all. This isn't something I know of a way to work around, and is the reason 
-> Direct AudioServer Input exists.
-> Only use Capture Bus if you specifically need bus effects on the mic
-> signal before it's encoded, and accept that reliability tradeoff.
+* Set the node's multiplayer authority **before** it enters the tree (as you would for a scene
+  spawned by a `MultiplayerSpawner`); it picks its role when it becomes ready.
+* It must sit at the same node path on every peer, like any node that uses RPCs.
+* **Encoder Settings** (`VoiceEncoderSettings`) and **Playback Settings** (`VoicePlaybackSettings`)
+  are optional presets. Each node keeps its own copy, so one `.tres` can be shared safely.
 
-### Direct AudioServer Input
+### Building blocks
 
-1. Add a `VoiceTransmitter`.
-2. Leave **Capture Bus Name** empty (the default).
-3. Assign a `VoiceConfig` resource.
-4. Add one or more audio players to the `Players` array.
+`VoicePeer` is a thin wrapper around three nodes you can also use directly:
 
-### Capture Bus
+* `VoiceSender` captures the microphone, encodes it and hands packets to a transport.
+  Change `sender.settings` at runtime: codec options (bitrate, loss protection, DTX) apply
+  immediately, and only a new sample rate, channel count or frame duration restarts the encoder.
+* `VoiceReceiver` plays one sender's voice through any number of players. Feed it with
+  `push_packet(packet, sequence)` or connect it to a transport.
+* `VoiceTransport` moves packets between peers. `VoiceMultiplayerTransport` uses unreliable
+  RPCs on a dedicated channel; `VoiceLoopbackTransport` sends packets back to itself (with
+  optional simulated loss, delay and jitter) for testing. To use other networking, extend
+  `VoiceTransport`: implement `send(packet, sequence)` and emit `packet_received(peer_id, packet,
+  sequence)` when one arrives. Use an unreliable channel; resent audio only adds latency.
 
-1. Create a new audio bus (for example, `VoiceCapture`).
-2. Add an `AudioEffectCapture` effect to that bus.
-3. Add an `AudioStreamPlayer` somewhere in your main scene and assign it an `AudioStreamMicrophone`.
-4. Add a `VoiceTransmitter`.
-5. Set **Capture Bus Name** to the name of the bus you created.
-6. Assign a `VoiceConfig` resource (the defaults are fine).
-7. Add one or more audio players to the `Players` array.
+Each sender needs a microphone of its own: two senders reading the same input split it between them.
 
-> **Note**
->
+### Microphone input
+
+By default `VoiceSender` reads the input device straight from the `AudioServer`. To run the
+microphone through bus effects (e.g. a noise gate) before encoding, use a capture bus instead:
+
+1. Create a new audio bus (for example, `VoiceCapture`), add an `AudioEffectCapture` to it, and mute it.
+2. Add an `AudioStreamPlayer` with an `AudioStreamMicrophone` on that bus, and play it.
+3. Set the sender's (or `VoicePeer`'s) **Capture Bus** to the bus name.
+
+> [!NOTE]
+> Opus decides what counts as silence with its own voice detector. Steady background noise
+> from a microphone that hasn't picked up speech yet, or louder noise at any time, may never
+> count as silent, so it keeps being sent. A noise gate or suppressor in front of the encoder
+> (on a capture bus, or at the OS level) helps.
+
+> [!NOTE]
 > Make _SURE_ you don't end up creating multiple microphone recording AudioStreamPlayer nodes. I spent 5 hours straight trying to figure out why people's voices were playing back twice, just because I added one under a scene that gets instantiated twice!
+
+### Demo
+
+`demo/` is a Godot project with a loopback scene (hear yourself through a simulated bad network,
+with live stats and a radio-effect player) and an ENet scene for voice chat between instances.
+Run `scons install` first to copy the built addon into it.
 
 ---
 
@@ -106,7 +121,8 @@ scons install              # also copies the addon into tests/godot and demo
 
 Then copy `addons/godotopus/` into your project's `addons/` folder.
 
-Godotopus requires Godot 4.5 or newer. godot-cpp is pinned to its `4.5` branch.
+Godotopus requires Godot 4.7 or newer: it's built against the 4.7 API (`api_version` in the
+SConstruct), using godot-cpp's version-independent `master` branch.
 
 ### Optional: DNN-based features
 

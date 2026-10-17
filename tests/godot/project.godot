@@ -6,7 +6,7 @@ config_version=5
 [application]
 
 config/name="Godotopus Tests"
-config/features=PackedStringArray("4.5")
+config/features=PackedStringArray("4.7")
 
 [audio]
 

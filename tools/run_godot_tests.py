@@ -50,6 +50,8 @@ def main():
         "-s",
         "res://addons/gdUnit4/bin/GdUnitCmdTool.gd",
         "--ignoreHeadlessMode",
+        # Keep going after a failure, so one run reports every failing test.
+        "-c",
         "-a",
         "res://tests",
     ]

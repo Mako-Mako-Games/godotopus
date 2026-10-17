@@ -1,0 +1,19 @@
+; Demo project for Godotopus. `scons install` copies the built addon into
+; addons/godotopus here.
+
+config_version=5
+
+[application]
+
+config/name="Godotopus Demo"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7")
+
+[audio]
+
+driver/enable_input=true
+
+[display]
+
+window/size/viewport_width=900
+window/size/viewport_height=640
