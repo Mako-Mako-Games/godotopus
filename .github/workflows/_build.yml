@@ -18,7 +18,7 @@ on:
 
 env:
   # Lowest supported Godot version; the Godot tests run against it.
-  GODOT_VERSION: 4.5-stable
+  GODOT_VERSION: 4.7-stable
   GODOTOPUS_DNN_CACHE: build/cache/opus_dnn
 
 jobs:

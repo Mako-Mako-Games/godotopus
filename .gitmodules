@@ -1,7 +1,7 @@
 [submodule "third-party/godot-cpp"]
 	path = third-party/godot-cpp
 	url = https://github.com/godotengine/godot-cpp.git
-	branch = 4.5
+	branch = master
 [submodule "third-party/opus"]
 	path = third-party/opus
 	url = https://github.com/xiph/opus.git

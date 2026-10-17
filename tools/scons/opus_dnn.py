@@ -90,6 +90,10 @@ def build_weights(env, gen_dir, data_sources):
     # Every target lives under build/gen, so SCons deleting them before the
     # action runs is harmless (it must never list submodule sources here).
     nodes = dnn_env.Command([stamp_path] + extracted, AUTOGEN, _fetch_and_extract)
+    # The action also extracts the *_data.h headers, which aren't declared
+    # targets. A CacheDir hit (SCONS_CACHE, as in CI) would restore only the
+    # declared targets and skip the action, leaving the headers missing.
+    dnn_env.NoCache(nodes)
     return nodes[0], extracted, os.path.join(out_root, "dnn")
 
 

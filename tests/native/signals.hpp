@@ -23,6 +23,26 @@ inline std::vector<float> sine(int p_rate, int p_channels, double p_hz, float p_
 	return out;
 }
 
+// Interleaved vowel-like signal on every channel: a 140 Hz harmonic series
+// under a 4 Hz syllable envelope. Unlike a steady sine, Opus's voice
+// detector treats it as speech, so it survives DTX.
+inline std::vector<float> voice_like(int p_rate, int p_channels, double p_seconds) {
+	const size_t frames = static_cast<size_t>(p_rate * p_seconds);
+	std::vector<float> out(frames * p_channels);
+	for (size_t i = 0; i < frames; i++) {
+		const double t = static_cast<double>(i) / p_rate;
+		const double envelope = 0.5 + 0.5 * std::sin(2.0 * PI * 4.0 * t);
+		double value = 0.0;
+		for (int h = 1; h < 12 && 140.0 * h < p_rate / 2.0; h++) {
+			value += std::sin(2.0 * PI * 140.0 * h * t) / h;
+		}
+		for (int c = 0; c < p_channels; c++) {
+			out[i * p_channels + c] = static_cast<float>(0.2 * envelope * value);
+		}
+	}
+	return out;
+}
+
 // Frequency of channel p_channel estimated from rising zero crossings,
 // ignoring the first p_skip_frames frames (codec/filter warm-up).
 inline double estimate_frequency(const std::vector<float> &p_samples, int p_rate, int p_channels, size_t p_skip_frames, int p_channel = 0) {

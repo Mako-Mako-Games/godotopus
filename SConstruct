@@ -23,7 +23,10 @@ import opus  # noqa: E402
 import speexdsp  # noqa: E402
 import version  # noqa: E402
 
-env = SConscript("third-party/godot-cpp/SConstruct")
+# The Godot API the extension is built against, which is also the oldest
+# Godot it loads in (see compatibility_minimum in the .gdextension file).
+api_version = "4.7"
+env = SConscript("third-party/godot-cpp/SConstruct", exports="api_version")
 
 
 def _flag(name):

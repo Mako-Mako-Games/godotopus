@@ -2,6 +2,7 @@
 
 #include "godotopus_codec.hpp"
 #include "godotopus_resampler.hpp"
+#include "voice_capture_pipeline.hpp"
 #include "voice_stream.hpp"
 
 #include <godot_cpp/core/defs.hpp>
@@ -19,6 +20,7 @@ void initialize_godotopus(ModuleInitializationLevel p_level) {
 	ClassDB::register_class<GodotOpusResampler>();
 	ClassDB::register_class<VoiceStream>();
 	ClassDB::register_class<VoiceStreamPlayback>();
+	ClassDB::register_class<VoiceCapturePipeline>();
 }
 
 void uninitialize_godotopus(ModuleInitializationLevel p_level) {
