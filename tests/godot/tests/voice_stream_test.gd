@@ -139,7 +139,11 @@ func test_silence_when_nothing_arrives() -> void:
 	assert_float(stream.get_level()).is_equal(0.0)
 
 
-func test_audio_stream_player_pulls_audio_in_real_time() -> void:
+## Checks that a real player drives decoding from the audio thread, not how
+## fast it does: headless Godot uses the Dummy audio driver, which sleeps a
+## full buffer after each mix and runs slower than real time on slow runners.
+## Pacing against a real clock is covered by the native suite.
+func test_audio_stream_player_pulls_audio() -> void:
 	var stream := VoiceStream.new()
 	var player := AudioStreamPlayer.new()
 	player.stream = stream
@@ -149,17 +153,18 @@ func test_audio_stream_player_pulls_audio_in_real_time() -> void:
 	var packets := _tone_packets(50)
 	var start := Time.get_ticks_usec()
 	var sent := 0
-	while sent < packets.size():
+	var stats := stream.get_stats()
+	while stats["packets_played"] < 25 and Time.get_ticks_usec() - start < 5_000_000:
 		# Send whatever is due by now, like a network would.
 		var due := mini(packets.size(), int((Time.get_ticks_usec() - start) / 20000.0) + 1)
 		while sent < due:
 			stream.push_packet(packets[sent], sent)
 			sent += 1
 		await get_tree().process_frame
-	await get_tree().create_timer(0.3).timeout
+		stats = stream.get_stats()
 
-	var stats := stream.get_stats()
-	assert_int(stats["packets_played"]).is_greater(40)
+	var played: int = stats["packets_played"]
+	assert_int(played).override_failure_message("stalled: %s" % stats).is_greater_equal(25)
 	player.queue_free()
 
 
